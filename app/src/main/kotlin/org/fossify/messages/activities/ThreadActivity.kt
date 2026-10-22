@@ -184,12 +184,15 @@ import org.fossify.messages.messaging.isLongMmsMessage
 import org.fossify.messages.messaging.isShortCodeWithLetters
 import org.fossify.messages.messaging.scheduleMessage
 import org.fossify.messages.messaging.sendMessageCompat
+import org.fossify.messages.extensions.senderTagsDB
+import org.fossify.messages.filtering.StarterRules
 import org.fossify.messages.models.Attachment
 import org.fossify.messages.models.AttachmentSelection
 import org.fossify.messages.models.Conversation
 import org.fossify.messages.models.Events
 import org.fossify.messages.models.Message
 import org.fossify.messages.models.MessageAttachment
+import org.fossify.messages.models.SenderTags
 import org.fossify.messages.models.SIMCard
 import org.fossify.messages.models.ThreadItem
 import org.fossify.messages.models.ThreadItem.ThreadDateTime
@@ -377,6 +380,50 @@ class ThreadActivity : SimpleActivity() {
                 participants.size == 1 && participants.first().name == firstPhoneNumber && !isRecycleBin
             findItem(R.id.copy_number).isVisible =
                 participants.size == 1 && !firstPhoneNumber.isNullOrEmpty() && !isRecycleBin
+
+            // Ben's hand-set silencing: this conversation, or this number
+            // in every conversation. Notification-only, reversible here.
+            findItem(R.id.silence_notifications).isVisible = conversation != null && !isRecycleBin
+            findItem(R.id.silence_notifications).isChecked = conversation?.muted == true
+            findItem(R.id.silence_number).isVisible =
+                participants.size == 1 && conversation != null && !isRecycleBin
+        }
+        refreshNumberSilenceState()
+    }
+
+    /** The number-mute lives in the sender tags; read it off the UI thread. */
+    private fun refreshNumberSilenceState() {
+        val number = conversation?.phoneNumber?.takeIf { participants.size == 1 } ?: return
+        ensureBackgroundThread {
+            val muted = senderTagsDB.getForNumber(number)?.tagList
+                ?.contains(StarterRules.TAG_MUTED) == true
+            runOnUiThread {
+                binding.threadToolbar.menu.findItem(R.id.silence_number)?.isChecked = muted
+            }
+        }
+    }
+
+    private fun toggleConversationSilence() {
+        val conv = conversation ?: return
+        val newValue = !conv.muted
+        ensureBackgroundThread {
+            conversationsDB.updateMuted(threadId, newValue)
+            conversation = conv.copy(muted = newValue)
+            runOnUiThread { refreshMenuItems() }
+        }
+    }
+
+    private fun toggleNumberSilence() {
+        val number = conversation?.phoneNumber ?: return
+        ensureBackgroundThread {
+            val tags = (senderTagsDB.getForNumber(number)?.tagList ?: emptyList()).toMutableList()
+            if (StarterRules.TAG_MUTED in tags) {
+                tags.remove(StarterRules.TAG_MUTED)
+            } else {
+                tags.add(StarterRules.TAG_MUTED)
+            }
+            senderTagsDB.insertOrUpdate(SenderTags.of(number, tags))
+            runOnUiThread { refreshMenuItems() }
         }
     }
 
@@ -401,6 +448,8 @@ class ThreadActivity : SimpleActivity() {
             R.id.dial_number -> dialNumber()
             R.id.manage_people -> managePeople()
             R.id.mark_as_unread -> markAsUnread()
+            R.id.silence_notifications -> toggleConversationSilence()
+            R.id.silence_number -> toggleNumberSilence()
             else -> return false
         }
 

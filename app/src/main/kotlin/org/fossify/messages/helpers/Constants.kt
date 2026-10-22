@@ -102,6 +102,8 @@ const val PICK_SAVE_DIR_INTENT = 50
 const val BLOCKED_KEYWORDS_EXPORT_DELIMITER = ","
 const val BLOCKED_KEYWORDS_EXPORT_EXTENSION = ".txt"
 const val FILTER_RULES_SEEDED = "filter_rules_seeded"
+const val FILTER_RULES_SEED_VERSION = "filter_rules_seed_version"
+const val MUTED_MAILBOXES = "muted_mailboxes"
 const val FILTER_RULES_EXPORT_EXTENSION = ".json"
 
 fun refreshMessages() {

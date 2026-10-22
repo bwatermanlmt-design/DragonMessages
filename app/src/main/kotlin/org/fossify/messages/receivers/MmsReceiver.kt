@@ -16,12 +16,14 @@ import org.fossify.messages.extensions.getLatestMMS
 import org.fossify.messages.extensions.getNameFromAddress
 import org.fossify.messages.extensions.insertOrUpdateConversation
 import org.fossify.messages.extensions.shouldUnarchive
+import org.fossify.messages.extensions.showLockerWarningNotification
 import org.fossify.messages.extensions.showReceivedMessageNotification
 import org.fossify.messages.extensions.updateConversationArchivedStatus
 import org.fossify.messages.helpers.FilterEvaluator
 import org.fossify.messages.helpers.refreshConversations
 import org.fossify.messages.helpers.refreshMessages
 import org.fossify.messages.models.FilterAuditEntry
+import org.fossify.messages.models.Mailbox
 import org.fossify.messages.models.Message
 
 class MmsReceiver : MmsReceivedReceiver() {
@@ -90,16 +92,28 @@ class MmsReceiver : MmsReceivedReceiver() {
             threadId = mms.threadId
         )
 
-        if (!verdict.silencesNotifications) {
-            context.showReceivedMessageNotification(
-                messageId = mms.id,
-                isMms = true,
-                address = address,
-                senderName = senderName,
-                body = mms.body,
-                threadId = mms.threadId,
-                bitmap = glideBitmap
-            )
+        when {
+            // The Locker knocks instead of showing: a warning naming the
+            // kind of arrival, never the content or a thumbnail.
+            verdict.mailbox == Mailbox.LOCKER && !verdict.notificationMuted -> {
+                context.showLockerWarningNotification(
+                    threadId = mms.threadId,
+                    senderName = senderName,
+                    kindRes = lockerWarningKind(mms)
+                )
+            }
+
+            verdict.shouldNotify -> {
+                context.showReceivedMessageNotification(
+                    messageId = mms.id,
+                    isMms = true,
+                    address = address,
+                    senderName = senderName,
+                    body = mms.body,
+                    threadId = mms.threadId,
+                    bitmap = glideBitmap
+                )
+            }
         }
 
         val conversation = context.getConversations(mms.threadId).firstOrNull() ?: return
@@ -110,5 +124,15 @@ class MmsReceiver : MmsReceivedReceiver() {
         }
         refreshMessages()
         refreshConversations()
+    }
+
+    /** What kind of thing arrived, for the Locker's warning: photo beats video beats text. */
+    private fun lockerWarningKind(mms: Message): Int {
+        val attachments = mms.attachment?.attachments ?: return R.string.locker_kind_text
+        return when {
+            attachments.any { it.mimetype.startsWith("image/") } -> R.string.locker_kind_photo
+            attachments.any { it.mimetype.startsWith("video/") } -> R.string.locker_kind_video
+            else -> R.string.locker_kind_text
+        }
     }
 }

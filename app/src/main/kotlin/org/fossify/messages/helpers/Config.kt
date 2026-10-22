@@ -156,4 +156,16 @@ class Config(context: Context) : BaseConfig(context) {
         get() = prefs.getBoolean(FILTER_RULES_SEEDED, false)
         set(filterRulesSeeded) = prefs.edit()
             .putBoolean(FILTER_RULES_SEEDED, filterRulesSeeded).apply()
+
+    /** Version of the starter rule pack last seeded/repaired; 0 = never. */
+    var filterRulesSeedVersion: Int
+        get() = prefs.getInt(FILTER_RULES_SEED_VERSION, 0)
+        set(filterRulesSeedVersion) = prefs.edit()
+            .putInt(FILTER_RULES_SEED_VERSION, filterRulesSeedVersion).apply()
+
+    /** Mailboxes Ben silenced by hand from the folder view. Default: none. */
+    var mutedMailboxes: Set<String>
+        get() = prefs.getStringSet(MUTED_MAILBOXES, emptySet())!!.toSet()
+        set(mutedMailboxes) = prefs.edit()
+            .putStringSet(MUTED_MAILBOXES, mutedMailboxes).apply()
 }

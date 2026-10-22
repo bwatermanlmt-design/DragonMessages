@@ -33,6 +33,10 @@ interface ConversationsDao {
     @Query("UPDATE conversations SET mailbox = :mailbox, manually_filed = 1 WHERE thread_id = :threadId")
     fun updateMailboxManuallyFiled(threadId: Long, mailbox: String)
 
+    /** Ben's per-conversation mute: suppresses notifications, nothing else. */
+    @Query("UPDATE conversations SET muted = :muted WHERE thread_id = :threadId")
+    fun updateMuted(threadId: Long, muted: Boolean)
+
     /** Every non-archived conversation, whatever mailbox it currently sits in. */
     @Query("SELECT * FROM conversations WHERE archived = 0")
     fun getAllNonArchivedConversations(): List<Conversation>

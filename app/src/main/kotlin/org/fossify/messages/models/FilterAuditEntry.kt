@@ -31,12 +31,11 @@ data class FilterAuditEntry(
         const val RETRO_SKIP_MANUALLY_FILED = "(retro: filed by hand)"
         const val RETRO_SKIP_LOCKER = "(retro: locker untouched)"
         const val RETRO_SKIP_NO_INBOUND = "(retro: no inbound message)"
-        const val RETRO_SKIP_ENGAGED = "(retro: engaged, kept)"
 
         /** Suffix on the audit rule name when a retro filing is a group conversation. */
         const val RETRO_GROUP_SUFFIX = " (retro: group)"
 
-        /** Suffix on the audit rule name when thread-state precedence held a thread in place. */
+        /** Suffix on the audit rule name when precedence changed the raw verdict's placement. */
         const val PRECEDENCE_KEPT_SUFFIX = " (precedence: kept)"
     }
 }

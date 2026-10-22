@@ -18,13 +18,16 @@ import org.fossify.messages.extensions.getThreadId
 import org.fossify.messages.extensions.insertNewSMS
 import org.fossify.messages.extensions.insertOrUpdateConversation
 import org.fossify.messages.extensions.messagesDB
+import org.fossify.messages.R
 import org.fossify.messages.extensions.shouldUnarchive
+import org.fossify.messages.extensions.showLockerWarningNotification
 import org.fossify.messages.extensions.showReceivedMessageNotification
 import org.fossify.messages.extensions.updateConversationArchivedStatus
 import org.fossify.messages.helpers.FilterEvaluator
 import org.fossify.messages.helpers.refreshConversations
 import org.fossify.messages.helpers.refreshMessages
 import org.fossify.messages.models.FilterAuditEntry
+import org.fossify.messages.models.Mailbox
 import org.fossify.messages.models.Message
 
 class SmsReceiver : BroadcastReceiver() {
@@ -71,7 +74,8 @@ class SmsReceiver : BroadcastReceiver() {
                     subscriptionId = subscriptionId,
                     status = status,
                     mailbox = verdict.mailbox,
-                    silent = verdict.silencesNotifications
+                    storeAsRead = verdict.mailbox == Mailbox.SPAM,
+                    suppressNotification = verdict.notificationMuted
                 )
             } finally {
                 pending.finish()
@@ -91,19 +95,21 @@ class SmsReceiver : BroadcastReceiver() {
         subscriptionId: Int,
         status: Int,
         mailbox: String,
-        silent: Boolean
+        storeAsRead: Boolean,
+        suppressNotification: Boolean
     ) {
         val photoUri = SimpleContactsHelper(context).getPhotoUriFromPhoneNumber(address)
         val bitmap = context.getNotificationBitmap(photoUri)
 
-        // Silently filed messages are stored already read, so they cannot
-        // light up unread badges anywhere either.
+        // Only filter catches (Spam) are stored already read, so they cannot
+        // light up unread badges anywhere either. Everything else — muted
+        // deliveries included — arrives unread like a normal message.
         val newMessageId = context.insertNewSMS(
             address = address,
             subject = subject,
             body = body,
             date = date,
-            read = if (silent) 1 else read,
+            read = if (storeAsRead) 1 else read,
             threadId = threadId,
             type = type,
             subscriptionId = subscriptionId
@@ -135,7 +141,7 @@ class SmsReceiver : BroadcastReceiver() {
             status = status,
             participants = arrayListOf(participant),
             date = (date / 1000).toInt(),
-            read = silent,
+            read = storeAsRead,
             threadId = threadId,
             isMMS = false,
             attachment = null,
@@ -153,16 +159,28 @@ class SmsReceiver : BroadcastReceiver() {
 
         refreshMessages()
         refreshConversations()
-        if (!silent) {
-            context.showReceivedMessageNotification(
-                messageId = newMessageId,
-                isMms = false,
-                address = address,
-                senderName = senderName,
-                body = body,
-                threadId = threadId,
-                bitmap = bitmap
-            )
+        when {
+            // The Locker knocks instead of showing: a warning with the
+            // sender and the kind of arrival, never the content.
+            mailbox == Mailbox.LOCKER -> if (!suppressNotification) {
+                context.showLockerWarningNotification(
+                    threadId = threadId,
+                    senderName = senderName,
+                    kindRes = R.string.locker_kind_text
+                )
+            }
+
+            !storeAsRead && !suppressNotification -> {
+                context.showReceivedMessageNotification(
+                    messageId = newMessageId,
+                    isMms = false,
+                    address = address,
+                    senderName = senderName,
+                    body = body,
+                    threadId = threadId,
+                    bitmap = bitmap
+                )
+            }
         }
     }
 }

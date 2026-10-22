@@ -1,6 +1,7 @@
 package org.fossify.messages.interfaces
 
 import androidx.room.Dao
+import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
@@ -19,6 +20,9 @@ interface FilterRulesDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertAll(rules: List<FilterRule>)
+
+    @Delete
+    fun delete(rule: FilterRule)
 
     @Query("DELETE FROM filter_rules")
     fun deleteAll()

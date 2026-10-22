@@ -69,11 +69,21 @@
     <string name="empty_archive_confirmation">Are you sure you want to empty the archive? All archived conversations will be permanently lost.</string>
     <string name="keep_conversations_archived">Keep conversations archived</string>
     <!-- Message filtering -->
-    <string name="quarantine">Quarantine</string>
+    <string name="quarantine">Not in Contacts</string>
     <string name="spam">Spam</string>
-    <string name="quarantined_conversations">Quarantine</string>
-    <string name="show_quarantined_conversations">Show quarantine</string>
-    <string name="no_quarantined_conversations">No quarantined conversations have been found</string>
+    <string name="quarantined_conversations">Not in Contacts</string>
+    <string name="show_quarantined_conversations">Show Not in Contacts</string>
+    <string name="no_quarantined_conversations">No Not in Contacts conversations have been found</string>
+    <string name="silence_notifications">Silence notifications</string>
+    <string name="silence_number">Silence this number</string>
+    <string name="folder_silenced_suffix"> (silenced)</string>
+    <string name="spam_always_silent">Spam is always silent</string>
+    <string name="folder_silenced">Folder silenced</string>
+    <string name="folder_unsilenced">Folder notifications back on</string>
+    <string name="locker_warning_title">New %1$s from %2$s</string>
+    <string name="locker_kind_photo">photo</string>
+    <string name="locker_kind_video">video</string>
+    <string name="locker_kind_text">text message</string>
     <string name="no_spam_conversations">No spam conversations have been found</string>
     <string name="release_to_contacts">Move to My Contacts</string>
     <string name="block_sender">Block sender</string>
@@ -90,7 +100,6 @@
     <string name="filing_existing_conversations">Filing existing conversations…</string>
     <string name="filed_conversations">Conversations filed</string>
     <string name="skipped_no_inbound">No incoming message, left alone</string>
-    <string name="skipped_engaged">You take part, left alone</string>
     <string name="skipped_manually_filed">Filed by hand, left alone</string>
     <string name="skipped_locker">In the Locker, left alone</string>
     <string name="already_filed">Already filed correctly</string>

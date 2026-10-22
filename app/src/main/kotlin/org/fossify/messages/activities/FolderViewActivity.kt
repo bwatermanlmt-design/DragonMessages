@@ -13,6 +13,7 @@ import org.fossify.commons.helpers.NavigationIcon
 import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.messages.R
 import org.fossify.messages.databinding.ActivityFolderViewBinding
+import org.fossify.messages.extensions.config
 import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.helpers.MAILBOX_FILTER
 import org.fossify.messages.models.Mailbox
@@ -37,12 +38,54 @@ class FolderViewActivity : SimpleActivity() {
         binding.mailboxQuarantineHolder.setOnClickListener { openMailbox(Mailbox.QUARANTINE) }
         binding.mailboxSpamHolder.setOnClickListener { openMailbox(Mailbox.SPAM) }
         binding.mailboxLockerHolder.setOnClickListener { unlockLockerThenOpen() }
+
+        // Long-press a folder to silence (or un-silence) the whole category:
+        // Ben's hand-set mute, notifications only — filing never changes.
+        binding.mailboxContactsHolder.setOnLongClickListener { toggleFolderMute(Mailbox.CONTACTS) }
+        binding.mailboxAuthHolder.setOnLongClickListener { toggleFolderMute(Mailbox.AUTH) }
+        binding.mailboxQuarantineHolder.setOnLongClickListener { toggleFolderMute(Mailbox.QUARANTINE) }
+        binding.mailboxSpamHolder.setOnLongClickListener { toggleFolderMute(Mailbox.SPAM) }
+        binding.mailboxLockerHolder.setOnLongClickListener { toggleFolderMute(Mailbox.LOCKER) }
+    }
+
+    private fun toggleFolderMute(mailbox: String): Boolean {
+        if (mailbox == Mailbox.SPAM) {
+            // Spam is the filter output: silent by definition, mute is a no-op.
+            toast(R.string.spam_always_silent)
+            return true
+        }
+
+        val muted = config.mutedMailboxes
+        config.mutedMailboxes = if (mailbox in muted) {
+            toast(R.string.folder_unsilenced)
+            muted - mailbox
+        } else {
+            toast(R.string.folder_silenced)
+            muted + mailbox
+        }
+        updateFolderNames()
+        return true
+    }
+
+    private fun updateFolderNames() {
+        val muted = config.mutedMailboxes
+        fun label(mailbox: String): String {
+            val name = getString(Mailbox.displayNameRes(mailbox))
+            return if (mailbox in muted) name + getString(R.string.folder_silenced_suffix) else name
+        }
+
+        binding.mailboxContactsName.text = label(Mailbox.CONTACTS)
+        binding.mailboxAuthName.text = label(Mailbox.AUTH)
+        binding.mailboxQuarantineName.text = label(Mailbox.QUARANTINE)
+        binding.mailboxSpamName.text = label(Mailbox.SPAM)
+        binding.mailboxLockerName.text = label(Mailbox.LOCKER)
     }
 
     override fun onResume() {
         super.onResume()
         setupTopAppBar(binding.folderAppbar, NavigationIcon.None)
         updateTextColors(binding.folderCoordinator)
+        updateFolderNames()
         loadCounts()
     }
 

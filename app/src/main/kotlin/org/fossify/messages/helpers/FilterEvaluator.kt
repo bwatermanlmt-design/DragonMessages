@@ -1,10 +1,13 @@
 package org.fossify.messages.helpers
 
 import android.content.Context
+import android.net.Uri
+import android.provider.ContactsContract
 import android.provider.Telephony
 import org.fossify.commons.extensions.getMyContactsCursor
 import org.fossify.commons.helpers.ContactLookupResult
 import org.fossify.commons.helpers.SimpleContactsHelper
+import org.fossify.messages.extensions.config
 import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.extensions.filterAuditDB
 import org.fossify.messages.extensions.getMMSSender
@@ -15,6 +18,7 @@ import org.fossify.messages.filtering.RetroConversationFacts
 import org.fossify.messages.filtering.RetroFiler
 import org.fossify.messages.filtering.RuleEngine
 import org.fossify.messages.filtering.RuleVerdict
+import org.fossify.messages.filtering.StarterRules
 import org.fossify.messages.filtering.ThreadPrecedence
 import org.fossify.messages.models.Conversation
 import org.fossify.messages.models.FilterAuditEntry
@@ -35,15 +39,17 @@ object FilterEvaluator {
     }
 
     /**
-     * The receive-path entry point: the raw rule verdict, tempered by
-     * thread-state precedence (see [ThreadPrecedence]). An engaged or
-     * hand-filed conversation keeps its mailbox instead of being re-filed
-     * by whatever the newest message happens to contain; the audit row
-     * records the effective placement, with the matched rule's name marked
-     * when precedence overrode it. Blocked senders never reach this point —
-     * the system BlockedNumberProvider drops SMS in the receiver and the
-     * MMS library deletes blocked MMS — so [ThreadPrecedence]'s blocked
-     * case is not in play here.
+     * The receive-path entry point: the raw rule verdict, resolved through
+     * thread-state precedence (see [ThreadPrecedence]) into the effective
+     * placement — contacts settle to their address-book home, an engaged
+     * thread's Spam verdict falls through, hand-filed and Locker threads
+     * stay put. The audit row records the effective placement, with the
+     * rule name marked when precedence changed it. Hand-set mutes
+     * (conversation, number, folder) are folded in as notification
+     * suppression only; they never change the placement. Blocked senders
+     * never reach this point — the system BlockedNumberProvider drops SMS
+     * in the receiver and the MMS library deletes blocked MMS — so
+     * [ThreadPrecedence]'s blocked case is not in play here.
      */
     fun evaluateIncoming(
         context: Context,
@@ -52,42 +58,50 @@ object FilterEvaluator {
         channel: String,
         threadId: Long
     ): RuleVerdict {
-        val raw = evaluateRules(context, sender, body)
+        FilterRuleSeeder.seedIfNeeded(context)
+
+        val rules = context.filterRulesDB.getAllEnabled()
+        val facts = buildFacts(context, sender, body)
+        val raw = RuleEngine.evaluate(rules, facts)
 
         val conversation = runCatching {
             context.conversationsDB.getConversationWithThreadId(threadId)
         }.getOrNull()
 
-        val effectiveMailbox = ThreadPrecedence.resolve(
+        val effective = ThreadPrecedence.resolve(
             currentMailbox = conversation?.mailbox,
-            verdictMailbox = raw.mailbox,
+            verdict = raw,
+            facts = facts,
+            rules = rules,
             engaged = hasOutgoingMessage(context, threadId),
             manuallyFiled = conversation?.manuallyFiled == true,
             senderBlocked = false
         )
 
-        val held = effectiveMailbox != raw.mailbox
-        val auditRuleName = if (held) {
-            raw.ruleName + FilterAuditEntry.PRECEDENCE_KEPT_SUFFIX
-        } else {
-            raw.ruleName
+        effective.assignTag?.let { tag ->
+            runCatching { assignTag(context, sender, tag) }
         }
-        recordAudit(context, sender, auditRuleName, effectiveMailbox, channel)
 
-        return if (held) raw.copy(mailbox = effectiveMailbox) else raw
+        val muted = conversation?.muted == true ||
+            StarterRules.TAG_MUTED in facts.senderTags ||
+            effective.mailbox in context.config.mutedMailboxes
+        val verdict = effective.copy(notificationMuted = muted)
+
+        val auditRuleName = if (effective.mailbox != raw.mailbox) {
+            effective.ruleName + FilterAuditEntry.PRECEDENCE_KEPT_SUFFIX
+        } else {
+            effective.ruleName
+        }
+        recordAudit(context, sender, auditRuleName, effective.mailbox, channel)
+
+        return verdict
     }
 
     /** The raw engine verdict for one message, with its tag assignment applied. */
     private fun evaluateRules(context: Context, sender: String, body: String): RuleVerdict {
         FilterRuleSeeder.seedIfNeeded(context)
 
-        val facts = MessageFacts(
-            sender = sender,
-            body = body,
-            senderInContacts = isSenderInContacts(context, sender),
-            senderTags = context.senderTagsDB.getForNumber(sender)?.tagList?.toSet() ?: emptySet()
-        )
-
+        val facts = buildFacts(context, sender, body)
         val verdict = RuleEngine.evaluate(context.filterRulesDB.getAllEnabled(), facts)
 
         verdict.assignTag?.let { tag ->
@@ -95,6 +109,18 @@ object FilterEvaluator {
         }
 
         return verdict
+    }
+
+    /** Everything the engine and precedence need to know about one message. */
+    private fun buildFacts(context: Context, sender: String, body: String): MessageFacts {
+        val inContacts = isSenderInContacts(context, sender)
+        return MessageFacts(
+            sender = sender,
+            body = body,
+            senderInContacts = inContacts,
+            senderTags = context.senderTagsDB.getForNumber(sender)?.tagList?.toSet() ?: emptySet(),
+            businessLabeled = inContacts && isBusinessLabeledContact(context, sender)
+        )
     }
 
     /**
@@ -154,9 +180,11 @@ object FilterEvaluator {
      * of that most recent inbound message, by exactly the same rules.
      * Applies the decision (mailbox move, tag assignment) and records it
      * in the audit log on the retro channel, with group filings marked as
-     * such. Protected conversations (hand-filed, the Locker, engaged
-     * threads facing demotion, group threads with no inbound message)
-     * come back [RetroOutcome.Skipped] with the skip itself audited.
+     * such. Protected conversations (hand-filed, the Locker, group
+     * threads with no inbound message) come back [RetroOutcome.Skipped]
+     * with the skip itself audited. Engaged threads are judged like
+     * everything else, with their spam-immunity applied inside the
+     * decision (see [RetroFiler]).
      */
     fun evaluateRetro(context: Context, conversation: Conversation): RetroOutcome {
         FilterRuleSeeder.seedIfNeeded(context)
@@ -201,13 +229,7 @@ object FilterEvaluator {
             currentMailbox = conversation.mailbox,
             engaged = hasOutgoingMessage(context, conversation.threadId),
             hasInboundMessage = latestInbound != null,
-            facts = MessageFacts(
-                sender = judgedSender,
-                body = judgedBody,
-                senderInContacts = isSenderInContacts(context, judgedSender),
-                senderTags = context.senderTagsDB.getForNumber(judgedSender)?.tagList?.toSet()
-                    ?: emptySet()
-            )
+            facts = buildFacts(context, judgedSender, judgedBody)
         )
 
         return when (val decision = RetroFiler.decide(retroFacts, context.filterRulesDB.getAllEnabled())) {
@@ -245,7 +267,6 @@ object FilterEvaluator {
         RetroFiler.SkipReason.MANUALLY_FILED -> FilterAuditEntry.RETRO_SKIP_MANUALLY_FILED
         RetroFiler.SkipReason.LOCKER -> FilterAuditEntry.RETRO_SKIP_LOCKER
         RetroFiler.SkipReason.NO_INBOUND -> FilterAuditEntry.RETRO_SKIP_NO_INBOUND
-        RetroFiler.SkipReason.ENGAGED -> FilterAuditEntry.RETRO_SKIP_ENGAGED
     }
 
     private fun recordAudit(context: Context, sender: String, ruleName: String, mailbox: String, channel: String) {
@@ -337,6 +358,91 @@ object FilterEvaluator {
         val privateCursor = context.getMyContactsCursor(favoritesOnly = false, withPhoneNumbersOnly = true)
         val result = SimpleContactsHelper(context).existsSync(sender, privateCursor)
         return result != ContactLookupResult.NotFound
+    }
+
+    /** Address-book group titles that mark a contact as a business. */
+    private val BUSINESS_GROUP_TITLES = setOf("Businesses", "Services")
+
+    /**
+     * Whether the contact behind [sender] carries a business label: a
+     * Contacts group titled "Businesses" or "Services" (case-insensitive).
+     * The classification lives in the address book, not in the app. Group
+     * data comes from the system contacts provider; contacts from other
+     * sources expose none, and any failure answers false — when in doubt
+     * the sender is treated as a person, never pushed away from Contacts.
+     */
+    private fun isBusinessLabeledContact(context: Context, sender: String): Boolean {
+        return try {
+            val contactId = lookupContactId(context, sender) ?: return false
+            val groupIds = groupIdsForContact(context, contactId)
+            if (groupIds.isEmpty()) {
+                false
+            } else {
+                groupTitles(context, groupIds).any { title ->
+                    BUSINESS_GROUP_TITLES.any { it.equals(title, ignoreCase = true) }
+                }
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun lookupContactId(context: Context, sender: String): Long? {
+        val uri = Uri.withAppendedPath(
+            ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+            Uri.encode(sender)
+        )
+        return context.contentResolver.query(
+            uri,
+            arrayOf(ContactsContract.PhoneLookup._ID),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getLong(0) else null
+        }
+    }
+
+    private fun groupIdsForContact(context: Context, contactId: Long): Set<Long> {
+        val groupIds = HashSet<Long>()
+        context.contentResolver.query(
+            ContactsContract.Data.CONTENT_URI,
+            arrayOf(ContactsContract.CommonDataKinds.GroupMembership.GROUP_ROW_ID),
+            "${ContactsContract.Data.CONTACT_ID} = ? AND ${ContactsContract.Data.MIMETYPE} = ?",
+            arrayOf(
+                contactId.toString(),
+                ContactsContract.CommonDataKinds.GroupMembership.CONTENT_ITEM_TYPE
+            ),
+            null
+        )?.use { cursor ->
+            while (cursor.moveToNext()) {
+                if (!cursor.isNull(0)) {
+                    groupIds += cursor.getLong(0)
+                }
+            }
+        }
+        return groupIds
+    }
+
+    private fun groupTitles(context: Context, groupIds: Set<Long>): Set<String> {
+        val placeholders = groupIds.joinToString(", ") { "?" }
+        val titles = HashSet<String>()
+        context.contentResolver.query(
+            ContactsContract.Groups.CONTENT_URI,
+            arrayOf(ContactsContract.Groups.TITLE, ContactsContract.Groups.DELETED),
+            "${ContactsContract.Groups._ID} IN ($placeholders)",
+            groupIds.map { it.toString() }.toTypedArray(),
+            null
+        )?.use { cursor ->
+            while (cursor.moveToNext()) {
+                val title = cursor.getString(0)
+                val deleted = cursor.getInt(1)
+                if (title != null && deleted == 0) {
+                    titles += title
+                }
+            }
+        }
+        return titles
     }
 
     private fun assignTag(context: Context, sender: String, tag: String) {

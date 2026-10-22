@@ -19,6 +19,7 @@ import org.fossify.commons.extensions.notificationManager
 import org.fossify.commons.helpers.SimpleContactsHelper
 import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.messages.R
+import org.fossify.messages.activities.FolderViewActivity
 import org.fossify.messages.activities.ThreadActivity
 import org.fossify.messages.extensions.config
 import org.fossify.messages.extensions.shortcutHelper
@@ -186,6 +187,54 @@ class NotificationHelper(private val context: Context) {
                 context.shortcutHelper.reportReceiveMessageUsage(threadId)
             }
         }
+    }
+
+    /**
+     * The Locker's knock (Ben's ruling, 2026-10-22): a new arrival in a
+     * locker-held thread announces itself, but the notification is a
+     * warning, never a preview — it says who it is from and what kind of
+     * thing arrived (text, photo, video), and nothing of the content, in
+     * both the private and the public (lock-screen) version. No body, no
+     * thumbnail, no actions. Tapping it opens the folder view, so the
+     * Locker's biometric gate still stands between the knock and the door.
+     */
+    fun showLockerWarningNotification(threadId: Long, sender: String, kindRes: Int) {
+        createChannel(NOTIFICATION_CHANNEL_ID, context.getString(R.string.channel_received_sms))
+
+        val notificationId = threadId.hashCode()
+        val contentIntent = Intent(context, FolderViewActivity::class.java)
+        val contentPendingIntent = PendingIntent.getActivity(
+            context,
+            notificationId,
+            contentIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val title = context.getString(R.string.locker_warning_title, context.getString(kindRes), sender)
+        val lockerName = context.getString(R.string.locker)
+
+        val publicVersion = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_messenger)
+            .setContentTitle(title)
+            .setContentText(lockerName)
+            .build()
+
+        val builder = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID).apply {
+            setSmallIcon(R.drawable.ic_messenger)
+            setContentTitle(title)
+            setContentText(lockerName)
+            color = context.getProperPrimaryColor()
+            setContentIntent(contentPendingIntent)
+            priority = NotificationCompat.PRIORITY_MAX
+            setDefaults(Notification.DEFAULT_LIGHTS)
+            setCategory(Notification.CATEGORY_MESSAGE)
+            setAutoCancel(true)
+            setSound(soundUri, AudioManager.STREAM_NOTIFICATION)
+            setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            setPublicVersion(publicVersion)
+        }
+
+        notificationManager.notify(notificationId, builder.build())
     }
 
     @SuppressLint("NewApi")

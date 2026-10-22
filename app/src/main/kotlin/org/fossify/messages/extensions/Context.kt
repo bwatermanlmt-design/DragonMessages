@@ -1093,6 +1093,17 @@ fun Context.showReceivedMessageNotification(
     }
 }
 
+/** The Locker's content-free warning: arrival + sender + kind, no content. */
+fun Context.showLockerWarningNotification(threadId: Long, senderName: String, kindRes: Int) {
+    Handler(Looper.getMainLooper()).post {
+        notificationHelper.showLockerWarningNotification(
+            threadId = threadId,
+            sender = senderName,
+            kindRes = kindRes
+        )
+    }
+}
+
 fun Context.getNameFromAddress(address: String, privateCursor: Cursor?): String {
     var sender = getNameAndPhotoFromPhoneNumber(address).name
     if (address == sender) {
@@ -1284,6 +1295,9 @@ fun Context.insertOrUpdateConversation(
         }
         if (updatedConv.manuallyFiled != cachedConv.manuallyFiled) {
             updatedConv = updatedConv.copy(manuallyFiled = cachedConv.manuallyFiled)
+        }
+        if (updatedConv.muted != cachedConv.muted) {
+            updatedConv = updatedConv.copy(muted = cachedConv.muted)
         }
     }
     conversationsDB.insertOrUpdate(updatedConv)

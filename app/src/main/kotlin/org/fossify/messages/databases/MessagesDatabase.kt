@@ -39,7 +39,7 @@ import org.fossify.messages.models.SenderTags
         FilterAuditEntry::class,
         SenderTags::class
     ],
-    version = 13
+    version = 14
 )
 @TypeConverters(Converters::class)
 abstract class MessagesDatabase : RoomDatabase() {
@@ -85,6 +85,7 @@ abstract class MessagesDatabase : RoomDatabase() {
                             .addMigrations(MIGRATION_10_11)
                             .addMigrations(MIGRATION_11_12)
                             .addMigrations(MIGRATION_12_13)
+                            .addMigrations(MIGRATION_13_14)
                             .build()
                     }
                 }
@@ -218,6 +219,14 @@ abstract class MessagesDatabase : RoomDatabase() {
                 // Conversations filed by hand get marked, so automated filing
                 // (the retroactive pass) never overrides Ben's own filing.
                 db.execSQL("ALTER TABLE conversations ADD COLUMN `manually_filed` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Per-conversation mute (Ben's hand-set silencing): suppresses
+                // notifications for the thread, changes nothing else.
+                db.execSQL("ALTER TABLE conversations ADD COLUMN `muted` INTEGER NOT NULL DEFAULT 0")
             }
         }
     }
