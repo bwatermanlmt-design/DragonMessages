@@ -21,7 +21,15 @@ data class FilterAuditEntry(
         const val CHANNEL_SMS = "sms"
         const val CHANNEL_MMS = "mms"
 
+        /** Verdicts from the manual "File existing conversations" pass. */
+        const val CHANNEL_RETRO = "retro"
+
         /** Rule name recorded when no rule matched and the built-in default applied. */
         const val DEFAULT_RULE_NAME = "(default)"
+
+        /** Rule names recorded for conversations the retro pass deliberately left alone. */
+        const val RETRO_SKIP_GROUP = "(retro: group skipped)"
+        const val RETRO_SKIP_MANUALLY_FILED = "(retro: filed by hand)"
+        const val RETRO_SKIP_LOCKER = "(retro: locker untouched)"
     }
 }

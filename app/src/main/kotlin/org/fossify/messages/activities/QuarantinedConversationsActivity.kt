@@ -22,6 +22,7 @@ import org.fossify.messages.extensions.config
 import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.helpers.THREAD_ID
 import org.fossify.messages.helpers.THREAD_TITLE
+import org.fossify.messages.helpers.runRetroactiveFiling
 import org.fossify.messages.models.Conversation
 import org.fossify.messages.models.Events
 import org.fossify.messages.models.Mailbox
@@ -72,6 +73,11 @@ class QuarantinedConversationsActivity : SimpleActivity() {
             when (menuItem.itemId) {
                 R.id.view_filter_log -> {
                     startActivity(Intent(this, FilterAuditLogActivity::class.java))
+                    true
+                }
+
+                R.id.file_existing_conversations -> {
+                    runRetroactiveFiling()
                     true
                 }
 

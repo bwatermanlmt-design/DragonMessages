@@ -42,6 +42,7 @@ import org.fossify.messages.extensions.senderTagsDB
 import org.fossify.messages.helpers.FILE_SIZE_100_KB
 import org.fossify.messages.helpers.FILTER_RULES_EXPORT_EXTENSION
 import org.fossify.messages.helpers.FilterRuleSet
+import org.fossify.messages.helpers.runRetroactiveFiling
 import org.fossify.messages.helpers.FilterRulesExporter
 import org.fossify.messages.helpers.FilterRulesImporter
 import org.fossify.messages.helpers.FILE_SIZE_1_MB
@@ -146,6 +147,7 @@ class SettingsActivity : SimpleActivity() {
         setupMessagesImport()
         setupExportFilterRules()
         setupImportFilterRules()
+        setupFileExistingConversations()
         updateTextColors(binding.settingsNestedScrollview)
 
         if (
@@ -191,6 +193,12 @@ class SettingsActivity : SimpleActivity() {
     private fun setupImportFilterRules() {
         binding.settingsImportFilterRulesHolder.setOnClickListener {
             getRulesContent.launch(arrayOf(messagesFileType))
+        }
+    }
+
+    private fun setupFileExistingConversations() {
+        binding.settingsFileExistingConversationsHolder.setOnClickListener {
+            runRetroactiveFiling()
         }
     }
 

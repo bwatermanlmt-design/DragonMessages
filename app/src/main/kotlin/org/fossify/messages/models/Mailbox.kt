@@ -1,5 +1,7 @@
 package org.fossify.messages.models
 
+import org.fossify.messages.R
+
 /**
  * The mailboxes a conversation can live in. Rules deliver conversations to a
  * mailbox; notification behaviour follows the mailbox, not the rule.
@@ -26,5 +28,14 @@ object Mailbox {
     /** Mailboxes whose incoming messages are stored without any notification. */
     fun silencesNotifications(mailbox: String): Boolean {
         return mailbox == QUARANTINE || mailbox == SPAM || mailbox == LOCKER
+    }
+
+    /** String resource naming the mailbox, for folder rows and list titles. */
+    fun displayNameRes(mailbox: String): Int = when (mailbox) {
+        CONTACTS -> R.string.my_contacts
+        AUTH -> R.string.auth_and_services
+        QUARANTINE -> R.string.quarantine
+        SPAM -> R.string.spam
+        else -> R.string.locker
     }
 }

@@ -83,6 +83,16 @@
     <string name="export_filter_rules">Export filter rules</string>
     <string name="import_filter_rules">Import filter rules</string>
     <string name="import_filter_rules_confirmation">Importing replaces all current filter rules and sender tags with the ones from the file. Continue?</string>
+    <string name="my_contacts">My Contacts</string>
+    <string name="auth_and_services">Auth &amp; Services</string>
+    <string name="locker">The Locker</string>
+    <string name="file_existing_conversations">File existing conversations</string>
+    <string name="filing_existing_conversations">Filing existing conversations…</string>
+    <string name="filed_conversations">Conversations filed</string>
+    <string name="skipped_group_conversations">Group conversations skipped</string>
+    <string name="skipped_manually_filed">Filed by hand, left alone</string>
+    <string name="skipped_locker">In the Locker, left alone</string>
+    <string name="already_filed">Already filed correctly</string>
     <!-- Recycle bin -->
     <string name="restore">Restore</string>
     <string name="restore_all_messages">Restore all messages</string>
