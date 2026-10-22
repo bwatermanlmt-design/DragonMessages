@@ -63,16 +63,28 @@ object PhoneNumbers {
     /**
      * Wildcard match where '*' stands for any run of characters (the same
      * convention as the blocked-number patterns in Fossify Commons). Patterns
-     * made only of digits and '*' are matched against the sender's digits.
+     * made only of digits and '*' are matched against the sender's digits,
+     * and also against the national form (an 11-digit number starting with
+     * country code 1 is tried without it), so "480*" hits +1 480 numbers.
      */
     fun matchesPattern(pattern: String, sender: String): Boolean {
-        val digitsAndStarsOnly = pattern.all { it.isDigit() || it == '*' }
-        val target = if (digitsAndStarsOnly) digitsOnly(sender) else sender
         val regex = StringBuilder("^")
         for (char in pattern) {
             regex.append(if (char == '*') ".*" else Regex.escape(char.toString()))
         }
         regex.append("$")
-        return Regex(regex.toString(), RegexOption.IGNORE_CASE).matches(target)
+        val compiled = Regex(regex.toString(), RegexOption.IGNORE_CASE)
+
+        val digitsAndStarsOnly = pattern.all { it.isDigit() || it == '*' }
+        if (!digitsAndStarsOnly) {
+            return compiled.matches(sender)
+        }
+
+        val digits = digitsOnly(sender)
+        if (compiled.matches(digits)) {
+            return true
+        }
+
+        return digits.length == 11 && digits.startsWith("1") && compiled.matches(digits.substring(1))
     }
 }
