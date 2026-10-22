@@ -63,8 +63,11 @@ import org.fossify.messages.helpers.generateRandomId
 import org.fossify.messages.interfaces.AttachmentsDao
 import org.fossify.messages.interfaces.ConversationsDao
 import org.fossify.messages.interfaces.DraftsDao
+import org.fossify.messages.interfaces.FilterAuditDao
+import org.fossify.messages.interfaces.FilterRulesDao
 import org.fossify.messages.interfaces.MessageAttachmentsDao
 import org.fossify.messages.interfaces.MessagesDao
+import org.fossify.messages.interfaces.SenderTagsDao
 import org.fossify.messages.messaging.MessagingUtils
 import org.fossify.messages.messaging.MessagingUtils.Companion.ADDRESS_SEPARATOR
 import org.fossify.messages.messaging.SmsSender
@@ -99,6 +102,15 @@ val Context.messagesDB: MessagesDao
 
 val Context.draftsDB: DraftsDao
     get() = getMessagesDB().DraftsDao()
+
+val Context.filterRulesDB: FilterRulesDao
+    get() = getMessagesDB().FilterRulesDao()
+
+val Context.filterAuditDB: FilterAuditDao
+    get() = getMessagesDB().FilterAuditDao()
+
+val Context.senderTagsDB: SenderTagsDao
+    get() = getMessagesDB().SenderTagsDao()
 
 val Context.notificationHelper
     get() = NotificationHelper(this)
@@ -1258,11 +1270,18 @@ fun Context.insertOrUpdateConversation(
     cachedConv: Conversation? = conversationsDB.getConversationWithThreadId(conversation.threadId),
 ) {
     var updatedConv = conversation
-    if (cachedConv != null && cachedConv.usesCustomTitle) {
-        updatedConv = updatedConv.copy(
-            title = cachedConv.title,
-            usesCustomTitle = true
-        )
+    if (cachedConv != null) {
+        // The provider-built conversation knows nothing of app-side state:
+        // keep the stored custom title and mailbox instead of resetting them.
+        if (cachedConv.usesCustomTitle) {
+            updatedConv = updatedConv.copy(
+                title = cachedConv.title,
+                usesCustomTitle = true
+            )
+        }
+        if (updatedConv.mailbox != cachedConv.mailbox) {
+            updatedConv = updatedConv.copy(mailbox = cachedConv.mailbox)
+        }
     }
     conversationsDB.insertOrUpdate(updatedConv)
 }

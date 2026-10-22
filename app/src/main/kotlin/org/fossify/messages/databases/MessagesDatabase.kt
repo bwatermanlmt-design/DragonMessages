@@ -12,14 +12,20 @@ import org.fossify.messages.helpers.Converters
 import org.fossify.messages.interfaces.AttachmentsDao
 import org.fossify.messages.interfaces.ConversationsDao
 import org.fossify.messages.interfaces.DraftsDao
+import org.fossify.messages.interfaces.FilterAuditDao
+import org.fossify.messages.interfaces.FilterRulesDao
 import org.fossify.messages.interfaces.MessageAttachmentsDao
 import org.fossify.messages.interfaces.MessagesDao
+import org.fossify.messages.interfaces.SenderTagsDao
 import org.fossify.messages.models.Attachment
 import org.fossify.messages.models.Conversation
 import org.fossify.messages.models.Draft
+import org.fossify.messages.models.FilterAuditEntry
+import org.fossify.messages.models.FilterRule
 import org.fossify.messages.models.Message
 import org.fossify.messages.models.MessageAttachment
 import org.fossify.messages.models.RecycleBinMessage
+import org.fossify.messages.models.SenderTags
 
 @Database(
     entities = [
@@ -28,9 +34,12 @@ import org.fossify.messages.models.RecycleBinMessage
         MessageAttachment::class,
         Message::class,
         RecycleBinMessage::class,
-        Draft::class
+        Draft::class,
+        FilterRule::class,
+        FilterAuditEntry::class,
+        SenderTags::class
     ],
-    version = 11
+    version = 12
 )
 @TypeConverters(Converters::class)
 abstract class MessagesDatabase : RoomDatabase() {
@@ -44,6 +53,12 @@ abstract class MessagesDatabase : RoomDatabase() {
     abstract fun MessagesDao(): MessagesDao
 
     abstract fun DraftsDao(): DraftsDao
+
+    abstract fun FilterRulesDao(): FilterRulesDao
+
+    abstract fun FilterAuditDao(): FilterAuditDao
+
+    abstract fun SenderTagsDao(): SenderTagsDao
 
     companion object {
         private var db: MessagesDatabase? = null
@@ -68,6 +83,7 @@ abstract class MessagesDatabase : RoomDatabase() {
                             .addMigrations(MIGRATION_8_9)
                             .addMigrations(MIGRATION_9_10)
                             .addMigrations(MIGRATION_10_11)
+                            .addMigrations(MIGRATION_11_12)
                             .build()
                     }
                 }
@@ -172,6 +188,27 @@ abstract class MessagesDatabase : RoomDatabase() {
                     "CREATE INDEX IF NOT EXISTS `index_messages_thread_id_date` " +
                         "ON `messages` (`thread_id`, `date`)"
                 )
+            }
+        }
+
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.apply {
+                    // Mailbox model: existing conversations default to My Contacts.
+                    execSQL("ALTER TABLE conversations ADD COLUMN `mailbox` TEXT NOT NULL DEFAULT 'contacts'")
+
+                    execSQL(
+                        "CREATE TABLE IF NOT EXISTS `filter_rules` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `enabled` INTEGER NOT NULL, `priority` INTEGER NOT NULL, `sender_exact` TEXT, `sender_pattern` TEXT, `sender_in_contacts` INTEGER, `sender_tag` TEXT, `keyword` TEXT, `contains_link` INTEGER, `sender_class` TEXT, `mailbox` TEXT NOT NULL, `assign_tag` TEXT)"
+                    )
+
+                    execSQL(
+                        "CREATE TABLE IF NOT EXISTS `filter_audit_log` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `timestamp` INTEGER NOT NULL, `sender` TEXT NOT NULL, `rule_name` TEXT NOT NULL, `mailbox` TEXT NOT NULL, `channel` TEXT NOT NULL)"
+                    )
+
+                    execSQL(
+                        "CREATE TABLE IF NOT EXISTS `sender_tags` (`number` TEXT NOT NULL, `tags` TEXT NOT NULL, PRIMARY KEY(`number`))"
+                    )
+                }
             }
         }
     }

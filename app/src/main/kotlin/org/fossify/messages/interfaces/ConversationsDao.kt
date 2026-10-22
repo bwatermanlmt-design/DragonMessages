@@ -12,12 +12,22 @@ interface ConversationsDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertOrUpdate(conversation: Conversation): Long
 
-    @Query("SELECT (SELECT body FROM messages LEFT OUTER JOIN recycle_bin_messages ON messages.id = recycle_bin_messages.id WHERE recycle_bin_messages.id IS NULL AND messages.thread_id = conversations.thread_id ORDER BY messages.date DESC LIMIT 1) as new_snippet, * FROM conversations WHERE archived = 0")
+    @Query("SELECT (SELECT body FROM messages LEFT OUTER JOIN recycle_bin_messages ON messages.id = recycle_bin_messages.id WHERE recycle_bin_messages.id IS NULL AND messages.thread_id = conversations.thread_id ORDER BY messages.date DESC LIMIT 1) as new_snippet, * FROM conversations WHERE archived = 0 AND mailbox IN ('contacts', 'auth')")
     fun getNonArchivedWithLatestSnippet(): List<ConversationWithSnippetOverride>
 
     fun getNonArchived(): List<Conversation> {
         return getNonArchivedWithLatestSnippet().map { it.toConversation() }
     }
+
+    @Query("SELECT (SELECT body FROM messages LEFT OUTER JOIN recycle_bin_messages ON messages.id = recycle_bin_messages.id WHERE recycle_bin_messages.id IS NULL AND messages.thread_id = conversations.thread_id ORDER BY messages.date DESC LIMIT 1) as new_snippet, * FROM conversations WHERE archived = 0 AND mailbox = :mailbox")
+    fun getByMailboxWithLatestSnippet(mailbox: String): List<ConversationWithSnippetOverride>
+
+    fun getByMailbox(mailbox: String): List<Conversation> {
+        return getByMailboxWithLatestSnippet(mailbox).map { it.toConversation() }
+    }
+
+    @Query("UPDATE conversations SET mailbox = :mailbox WHERE thread_id = :threadId")
+    fun updateMailbox(threadId: Long, mailbox: String)
 
     @Query("SELECT (SELECT body FROM messages LEFT OUTER JOIN recycle_bin_messages ON messages.id = recycle_bin_messages.id WHERE recycle_bin_messages.id IS NULL AND messages.thread_id = conversations.thread_id ORDER BY messages.date DESC LIMIT 1) as new_snippet, * FROM conversations WHERE archived = 1")
     fun getAllArchivedWithLatestSnippet(): List<ConversationWithSnippetOverride>
