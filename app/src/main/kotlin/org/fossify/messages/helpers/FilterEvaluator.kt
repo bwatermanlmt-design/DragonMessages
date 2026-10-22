@@ -22,6 +22,7 @@ import org.fossify.messages.filtering.StarterRules
 import org.fossify.messages.filtering.ThreadPrecedence
 import org.fossify.messages.models.Conversation
 import org.fossify.messages.models.FilterAuditEntry
+import org.fossify.messages.models.Mailbox
 import org.fossify.messages.models.SenderTags
 
 /**
@@ -42,9 +43,11 @@ object FilterEvaluator {
      * The receive-path entry point: the raw rule verdict, resolved through
      * thread-state precedence (see [ThreadPrecedence]) into the effective
      * placement — contacts settle to their address-book home, an engaged
-     * thread's Spam verdict falls through, hand-filed and Locker threads
-     * stay put. The audit row records the effective placement, with the
-     * rule name marked when precedence changed it. Hand-set mutes
+     * thread's Spam verdict falls through, an answered thread already in
+     * Not in Contacts is ignored by the filters entirely, hand-filed and
+     * Locker threads stay put. The audit row records the effective
+     * placement, with the rule name marked when precedence changed it —
+     * or when the filters ignored the thread. Hand-set mutes
      * (conversation, number, folder) are folded in as notification
      * suppression only; they never change the placement. Blocked senders
      * never reach this point — the system BlockedNumberProvider drops SMS
@@ -68,12 +71,13 @@ object FilterEvaluator {
             context.conversationsDB.getConversationWithThreadId(threadId)
         }.getOrNull()
 
+        val engaged = hasOutgoingMessage(context, threadId)
         val effective = ThreadPrecedence.resolve(
             currentMailbox = conversation?.mailbox,
             verdict = raw,
             facts = facts,
             rules = rules,
-            engaged = hasOutgoingMessage(context, threadId),
+            engaged = engaged,
             manuallyFiled = conversation?.manuallyFiled == true,
             senderBlocked = false
         )
@@ -87,10 +91,20 @@ object FilterEvaluator {
             effective.mailbox in context.config.mutedMailboxes
         val verdict = effective.copy(notificationMuted = muted)
 
-        val auditRuleName = if (effective.mailbox != raw.mailbox) {
-            effective.ruleName + FilterAuditEntry.PRECEDENCE_KEPT_SUFFIX
-        } else {
-            effective.ruleName
+        // The filters ignore an answered thread sitting in Not in
+        // Contacts: precedence kept it there without consulting the rules
+        // for placement. The audit row says so distinctly, so the filter
+        // log can explain why nothing moved. (Contacts are excluded —
+        // the address book outranks the ignore — and a hand-filed thread
+        // is kept by Ben's hand, not by this rule.)
+        val answeredAndIgnored = engaged &&
+            conversation?.mailbox == Mailbox.QUARANTINE &&
+            conversation?.manuallyFiled != true &&
+            !facts.senderInContacts
+        val auditRuleName = when {
+            answeredAndIgnored -> effective.ruleName + FilterAuditEntry.PRECEDENCE_ANSWERED_SUFFIX
+            effective.mailbox != raw.mailbox -> effective.ruleName + FilterAuditEntry.PRECEDENCE_KEPT_SUFFIX
+            else -> effective.ruleName
         }
         recordAudit(context, sender, auditRuleName, effective.mailbox, channel)
 
@@ -181,10 +195,11 @@ object FilterEvaluator {
      * Applies the decision (mailbox move, tag assignment) and records it
      * in the audit log on the retro channel, with group filings marked as
      * such. Protected conversations (hand-filed, the Locker, group
-     * threads with no inbound message) come back [RetroOutcome.Skipped]
-     * with the skip itself audited. Engaged threads are judged like
-     * everything else, with their spam-immunity applied inside the
-     * decision (see [RetroFiler]).
+     * threads with no inbound message, answered threads already in Not in
+     * Contacts) come back [RetroOutcome.Skipped] with the skip itself
+     * audited. Engaged threads anywhere else are judged like everything
+     * else, with their spam-immunity applied inside the decision (see
+     * [RetroFiler]).
      */
     fun evaluateRetro(context: Context, conversation: Conversation): RetroOutcome {
         FilterRuleSeeder.seedIfNeeded(context)
@@ -267,6 +282,7 @@ object FilterEvaluator {
         RetroFiler.SkipReason.MANUALLY_FILED -> FilterAuditEntry.RETRO_SKIP_MANUALLY_FILED
         RetroFiler.SkipReason.LOCKER -> FilterAuditEntry.RETRO_SKIP_LOCKER
         RetroFiler.SkipReason.NO_INBOUND -> FilterAuditEntry.RETRO_SKIP_NO_INBOUND
+        RetroFiler.SkipReason.ENGAGED_IN_QUARANTINE -> FilterAuditEntry.RETRO_SKIP_ENGAGED_IN_QUARANTINE
     }
 
     private fun recordAudit(context: Context, sender: String, ruleName: String, mailbox: String, channel: String) {

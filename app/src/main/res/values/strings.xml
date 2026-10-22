@@ -101,6 +101,7 @@
     <string name="filed_conversations">Conversations filed</string>
     <string name="skipped_no_inbound">No incoming message, left alone</string>
     <string name="skipped_manually_filed">Filed by hand, left alone</string>
+    <string name="skipped_answered">Answered, left alone</string>
     <string name="skipped_locker">In the Locker, left alone</string>
     <string name="already_filed">Already filed correctly</string>
     <string name="mailboxes">Mailboxes</string>
