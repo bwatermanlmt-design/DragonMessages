@@ -18,9 +18,8 @@
     <uses-permission android:name="android.permission.CALL_PHONE" />
 
     <uses-permission android:name="android.permission.READ_CONTACTS" />
-    <uses-permission
-        android:name="android.permission.USE_BIOMETRIC"
-        tools:node="remove" />
+    <!-- Kept (not stripped as upstream does): the Locker gate uses it. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <queries>
         <package android:name="org.fossify.contacts.debug" />
