@@ -49,15 +49,16 @@ class SmsReceiver : BroadcastReceiver() {
                 // they still drop the message outright, before any rule runs.
                 if (appContext.isNumberBlocked(address)) return@ensureBackgroundThread
 
-                val verdict = FilterEvaluator.evaluate(
+                val threadId = appContext.getThreadId(address)
+                val verdict = FilterEvaluator.evaluateIncoming(
                     context = appContext,
                     sender = address,
                     body = body,
-                    channel = FilterAuditEntry.CHANNEL_SMS
+                    channel = FilterAuditEntry.CHANNEL_SMS,
+                    threadId = threadId
                 )
 
                 val date = System.currentTimeMillis()
-                val threadId = appContext.getThreadId(address)
                 val subscriptionId = intent.getIntExtra("subscription", -1)
 
                 handleMessageSync(

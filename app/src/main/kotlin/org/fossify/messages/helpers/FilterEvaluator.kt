@@ -14,6 +14,7 @@ import org.fossify.messages.filtering.RetroConversationFacts
 import org.fossify.messages.filtering.RetroFiler
 import org.fossify.messages.filtering.RuleEngine
 import org.fossify.messages.filtering.RuleVerdict
+import org.fossify.messages.filtering.ThreadPrecedence
 import org.fossify.messages.models.Conversation
 import org.fossify.messages.models.FilterAuditEntry
 import org.fossify.messages.models.SenderTags
@@ -27,6 +28,56 @@ import org.fossify.messages.models.SenderTags
 object FilterEvaluator {
 
     fun evaluate(context: Context, sender: String, body: String, channel: String): RuleVerdict {
+        val verdict = evaluateRules(context, sender, body)
+        recordAudit(context, sender, verdict.ruleName, verdict.mailbox, channel)
+        return verdict
+    }
+
+    /**
+     * The receive-path entry point: the raw rule verdict, tempered by
+     * thread-state precedence (see [ThreadPrecedence]). An engaged or
+     * hand-filed conversation keeps its mailbox instead of being re-filed
+     * by whatever the newest message happens to contain; the audit row
+     * records the effective placement, with the matched rule's name marked
+     * when precedence overrode it. Blocked senders never reach this point —
+     * the system BlockedNumberProvider drops SMS in the receiver and the
+     * MMS library deletes blocked MMS — so [ThreadPrecedence]'s blocked
+     * case is not in play here.
+     */
+    fun evaluateIncoming(
+        context: Context,
+        sender: String,
+        body: String,
+        channel: String,
+        threadId: Long
+    ): RuleVerdict {
+        val raw = evaluateRules(context, sender, body)
+
+        val conversation = runCatching {
+            context.conversationsDB.getConversationWithThreadId(threadId)
+        }.getOrNull()
+
+        val effectiveMailbox = ThreadPrecedence.resolve(
+            currentMailbox = conversation?.mailbox,
+            verdictMailbox = raw.mailbox,
+            engaged = hasOutgoingMessage(context, threadId),
+            manuallyFiled = conversation?.manuallyFiled == true,
+            senderBlocked = false
+        )
+
+        val held = effectiveMailbox != raw.mailbox
+        val auditRuleName = if (held) {
+            raw.ruleName + FilterAuditEntry.PRECEDENCE_KEPT_SUFFIX
+        } else {
+            raw.ruleName
+        }
+        recordAudit(context, sender, auditRuleName, effectiveMailbox, channel)
+
+        return if (held) raw.copy(mailbox = effectiveMailbox) else raw
+    }
+
+    /** The raw engine verdict for one message, with its tag assignment applied. */
+    private fun evaluateRules(context: Context, sender: String, body: String): RuleVerdict {
         FilterRuleSeeder.seedIfNeeded(context)
 
         val facts = MessageFacts(
@@ -38,13 +89,53 @@ object FilterEvaluator {
 
         val verdict = RuleEngine.evaluate(context.filterRulesDB.getAllEnabled(), facts)
 
-        recordAudit(context, sender, verdict.ruleName, verdict.mailbox, channel)
-
         verdict.assignTag?.let { tag ->
             runCatching { assignTag(context, sender, tag) }
         }
 
         return verdict
+    }
+
+    /**
+     * Whether the thread contains a message Ben sent. The message store is
+     * the source of truth (it also counts replies sent before this app
+     * became the default, or from another app), so no flag has to be
+     * maintained on send.
+     */
+    fun hasOutgoingMessage(context: Context, threadId: Long): Boolean {
+        val smsSent = providerHasRow(
+            context,
+            Telephony.Sms.CONTENT_URI,
+            "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms.TYPE} = ?",
+            arrayOf(threadId.toString(), Telephony.Sms.MESSAGE_TYPE_SENT.toString())
+        )
+        if (smsSent) return true
+
+        return providerHasRow(
+            context,
+            Telephony.Mms.CONTENT_URI,
+            "${Telephony.Mms.THREAD_ID} = ? AND ${Telephony.Mms.MESSAGE_BOX} = ?",
+            arrayOf(threadId.toString(), Telephony.Mms.MESSAGE_BOX_SENT.toString())
+        )
+    }
+
+    private fun providerHasRow(
+        context: Context,
+        uri: android.net.Uri,
+        selection: String,
+        selectionArgs: Array<String>
+    ): Boolean {
+        return try {
+            context.contentResolver.query(
+                uri,
+                arrayOf(Telephony.Sms._ID),
+                selection,
+                selectionArgs,
+                null
+            )?.use { cursor -> cursor.moveToFirst() } ?: false
+        } catch (e: Exception) {
+            false
+        }
     }
 
     /** The outcome of retroactively evaluating one stored conversation. */

@@ -82,11 +82,12 @@ class MmsReceiver : MmsReceivedReceiver() {
 
         // The MMS is already stored by the library at this point; the rule
         // engine decides where it files and whether it may notify.
-        val verdict = FilterEvaluator.evaluate(
+        val verdict = FilterEvaluator.evaluateIncoming(
             context = context,
             sender = address,
             body = mms.body,
-            channel = FilterAuditEntry.CHANNEL_MMS
+            channel = FilterAuditEntry.CHANNEL_MMS,
+            threadId = mms.threadId
         )
 
         if (!verdict.silencesNotifications) {
