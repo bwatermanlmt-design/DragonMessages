@@ -495,6 +495,36 @@
                     android:text="@string/import_messages" />
 
             </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_export_filter_rules_holder"
+                style="@style/SettingsHolderTextViewOneLinerStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_export_filter_rules"
+                    style="@style/SettingsTextLabelStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/export_filter_rules" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_import_filter_rules_holder"
+                style="@style/SettingsHolderTextViewOneLinerStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_import_filter_rules"
+                    style="@style/SettingsTextLabelStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/import_filter_rules" />
+
+            </RelativeLayout>
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

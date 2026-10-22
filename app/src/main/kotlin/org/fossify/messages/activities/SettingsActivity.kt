@@ -1,6 +1,7 @@
 package org.fossify.messages.activities
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.result.contract.ActivityResultContracts
 import org.fossify.commons.activities.ManageBlockedNumbersActivity
@@ -18,6 +19,7 @@ import org.fossify.commons.extensions.getProperPrimaryColor
 import org.fossify.commons.extensions.toast
 import org.fossify.commons.extensions.updateTextColors
 import org.fossify.commons.extensions.viewBinding
+import org.fossify.commons.helpers.ExportResult
 import org.fossify.commons.helpers.FONT_SIZE_EXTRA_LARGE
 import org.fossify.commons.helpers.FONT_SIZE_LARGE
 import org.fossify.commons.helpers.FONT_SIZE_MEDIUM
@@ -34,8 +36,14 @@ import org.fossify.messages.databinding.ActivitySettingsBinding
 import org.fossify.messages.dialogs.ExportMessagesDialog
 import org.fossify.messages.extensions.config
 import org.fossify.messages.extensions.emptyMessagesRecycleBin
+import org.fossify.messages.extensions.filterRulesDB
 import org.fossify.messages.extensions.messagesDB
+import org.fossify.messages.extensions.senderTagsDB
 import org.fossify.messages.helpers.FILE_SIZE_100_KB
+import org.fossify.messages.helpers.FILTER_RULES_EXPORT_EXTENSION
+import org.fossify.messages.helpers.FilterRuleSet
+import org.fossify.messages.helpers.FilterRulesExporter
+import org.fossify.messages.helpers.FilterRulesImporter
 import org.fossify.messages.helpers.FILE_SIZE_1_MB
 import org.fossify.messages.helpers.FILE_SIZE_200_KB
 import org.fossify.messages.helpers.FILE_SIZE_2_MB
@@ -47,6 +55,9 @@ import org.fossify.messages.helpers.LOCK_SCREEN_SENDER
 import org.fossify.messages.helpers.LOCK_SCREEN_SENDER_MESSAGE
 import org.fossify.messages.helpers.MessagesImporter
 import org.fossify.messages.helpers.refreshConversations
+import org.fossify.messages.helpers.toEntity
+import org.fossify.messages.helpers.toRuleSet
+import org.fossify.messages.models.SenderTags
 import java.util.Locale
 import kotlin.system.exitProcess
 
@@ -77,6 +88,20 @@ class SettingsActivity : SimpleActivity() {
             if (uri != null) {
                 toast(org.fossify.commons.R.string.exporting)
                 exportMessagesDialog?.exportMessages(uri)
+            }
+        }
+
+    private val saveRulesDocument =
+        registerForActivityResult(ActivityResultContracts.CreateDocument(messagesFileType)) { uri ->
+            if (uri != null) {
+                exportFilterRules(uri)
+            }
+        }
+
+    private val getRulesContent =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) {
+                importFilterRules(uri)
             }
         }
 
@@ -119,6 +144,8 @@ class SettingsActivity : SimpleActivity() {
         setupAppPasswordProtection()
         setupMessagesExport()
         setupMessagesImport()
+        setupExportFilterRules()
+        setupImportFilterRules()
         updateTextColors(binding.settingsNestedScrollview)
 
         if (
@@ -152,6 +179,82 @@ class SettingsActivity : SimpleActivity() {
     private fun setupMessagesImport() {
         binding.settingsImportMessagesHolder.setOnClickListener {
             getContent.launch(messageImportFileTypes.toTypedArray())
+        }
+    }
+
+    private fun setupExportFilterRules() {
+        binding.settingsExportFilterRulesHolder.setOnClickListener {
+            saveRulesDocument.launch("messages-filter-rules$FILTER_RULES_EXPORT_EXTENSION")
+        }
+    }
+
+    private fun setupImportFilterRules() {
+        binding.settingsImportFilterRulesHolder.setOnClickListener {
+            getRulesContent.launch(arrayOf(messagesFileType))
+        }
+    }
+
+    private fun exportFilterRules(uri: Uri) {
+        toast(org.fossify.commons.R.string.exporting)
+        ensureBackgroundThread {
+            val ruleSet = filterRulesDB.getAll().toRuleSet(senderTagsDB.getAll())
+            val outputStream = try {
+                contentResolver.openOutputStream(uri)
+            } catch (e: Exception) {
+                null
+            }
+
+            FilterRulesExporter.exportRuleSet(ruleSet, outputStream) { result ->
+                toast(
+                    when (result) {
+                        ExportResult.EXPORT_OK -> org.fossify.commons.R.string.exporting_successful
+                        else -> org.fossify.commons.R.string.unknown_error_occurred
+                    }
+                )
+            }
+        }
+    }
+
+    private fun importFilterRules(uri: Uri) {
+        toast(org.fossify.commons.R.string.importing)
+        ensureBackgroundThread {
+            val ruleSet = try {
+                contentResolver.openInputStream(uri)?.use { inputStream ->
+                    FilterRulesImporter.parseRuleSet(inputStream)
+                }
+            } catch (e: Exception) {
+                null
+            }
+
+            if (ruleSet == null) {
+                toast(org.fossify.commons.R.string.invalid_file_format)
+                return@ensureBackgroundThread
+            }
+
+            runOnUiThread {
+                ConfirmationDialog(
+                    activity = this,
+                    message = "",
+                    messageId = R.string.import_filter_rules_confirmation,
+                    positive = org.fossify.commons.R.string.yes,
+                    negative = org.fossify.commons.R.string.no
+                ) {
+                    ensureBackgroundThread {
+                        replaceFilterRules(ruleSet)
+                        toast(org.fossify.commons.R.string.importing_successful)
+                    }
+                }
+            }
+        }
+    }
+
+    /** Import replaces: the file's rules and sender tags become the whole set. */
+    private fun replaceFilterRules(ruleSet: FilterRuleSet) {
+        filterRulesDB.deleteAll()
+        filterRulesDB.insertAll(ruleSet.rules.map { it.toEntity() })
+        senderTagsDB.deleteAll()
+        ruleSet.senderTags.forEach { (number, tags) ->
+            senderTagsDB.insertOrUpdate(SenderTags.of(number, tags))
         }
     }
 
