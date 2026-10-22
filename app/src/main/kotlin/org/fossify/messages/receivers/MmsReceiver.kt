@@ -4,14 +4,12 @@ import android.content.Context
 import android.net.Uri
 import com.bumptech.glide.Glide
 import com.klinker.android.send_message.MmsReceivedReceiver
-import org.fossify.commons.extensions.baseConfig
 import org.fossify.commons.extensions.getMyContactsCursor
 import org.fossify.commons.extensions.isNumberBlocked
 import org.fossify.commons.extensions.showErrorToast
-import org.fossify.commons.helpers.ContactLookupResult
-import org.fossify.commons.helpers.SimpleContactsHelper
 import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.messages.R
+import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.extensions.getConversations
 import org.fossify.messages.extensions.getMMS
 import org.fossify.messages.extensions.getLatestMMS
@@ -20,26 +18,26 @@ import org.fossify.messages.extensions.insertOrUpdateConversation
 import org.fossify.messages.extensions.shouldUnarchive
 import org.fossify.messages.extensions.showReceivedMessageNotification
 import org.fossify.messages.extensions.updateConversationArchivedStatus
-import org.fossify.messages.helpers.ReceiverUtils.isMessageFilteredOut
+import org.fossify.messages.helpers.FilterEvaluator
 import org.fossify.messages.helpers.refreshConversations
 import org.fossify.messages.helpers.refreshMessages
+import org.fossify.messages.models.FilterAuditEntry
 import org.fossify.messages.models.Message
 
 class MmsReceiver : MmsReceivedReceiver() {
 
     override fun isAddressBlocked(context: Context, address: String): Boolean {
-        if (context.isNumberBlocked(address)) return true
-        if (context.baseConfig.blockUnknownNumbers) {
-            val privateCursor = context.getMyContactsCursor(favoritesOnly = false, withPhoneNumbersOnly = true)
-            val result = SimpleContactsHelper(context).existsSync(address, privateCursor)
-            return result == ContactLookupResult.NotFound
-        }
-
-        return false
+        // Only explicit system-level blocks are answered here: when either of
+        // these callbacks returns true, the MMS library deletes the message
+        // it just downloaded. Everything else is filed by the rule engine in
+        // onMessageReceived instead, so nothing is ever silently destroyed.
+        return context.isNumberBlocked(address)
     }
 
     override fun isContentBlocked(context: Context, content: String): Boolean {
-        return isMessageFilteredOut(context, content)
+        // Never true: a true verdict makes the library delete the MMS.
+        // Content rules are applied by the rule engine after delivery.
+        return false
     }
 
     override fun onMessageReceived(context: Context, messageUri: Uri?) {
@@ -82,18 +80,30 @@ class MmsReceiver : MmsReceivedReceiver() {
             context.getNameFromAddress(address, it)
         }
 
-        context.showReceivedMessageNotification(
-            messageId = mms.id,
-            isMms = true,
-            address = address,
-            senderName = senderName,
+        // The MMS is already stored by the library at this point; the rule
+        // engine decides where it files and whether it may notify.
+        val verdict = FilterEvaluator.evaluate(
+            context = context,
+            sender = address,
             body = mms.body,
-            threadId = mms.threadId,
-            bitmap = glideBitmap
+            channel = FilterAuditEntry.CHANNEL_MMS
         )
+
+        if (!verdict.silencesNotifications) {
+            context.showReceivedMessageNotification(
+                messageId = mms.id,
+                isMms = true,
+                address = address,
+                senderName = senderName,
+                body = mms.body,
+                threadId = mms.threadId,
+                bitmap = glideBitmap
+            )
+        }
 
         val conversation = context.getConversations(mms.threadId).firstOrNull() ?: return
         runCatching { context.insertOrUpdateConversation(conversation) }
+        runCatching { context.conversationsDB.updateMailbox(mms.threadId, verdict.mailbox) }
         if (context.shouldUnarchive()) {
             context.updateConversationArchivedStatus(mms.threadId, false)
         }
