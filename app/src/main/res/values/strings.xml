@@ -68,6 +68,21 @@
     <string name="archive_emptied_successfully">The archive has been emptied successfully</string>
     <string name="empty_archive_confirmation">Are you sure you want to empty the archive? All archived conversations will be permanently lost.</string>
     <string name="keep_conversations_archived">Keep conversations archived</string>
+    <!-- Message filtering -->
+    <string name="quarantine">Quarantine</string>
+    <string name="spam">Spam</string>
+    <string name="quarantined_conversations">Quarantine</string>
+    <string name="show_quarantined_conversations">Show quarantine</string>
+    <string name="no_quarantined_conversations">No quarantined conversations have been found</string>
+    <string name="no_spam_conversations">No spam conversations have been found</string>
+    <string name="release_to_contacts">Move to My Contacts</string>
+    <string name="block_sender">Block sender</string>
+    <string name="block_senders_confirmation">Block the selected senders? Their numbers are added to the system block list and the conversations move to Spam.</string>
+    <string name="filter_log">Filter log</string>
+    <string name="no_filter_log_entries">No filter decisions have been recorded yet</string>
+    <string name="export_filter_rules">Export filter rules</string>
+    <string name="import_filter_rules">Import filter rules</string>
+    <string name="import_filter_rules_confirmation">Importing replaces all current filter rules and sender tags with the ones from the file. Continue?</string>
     <!-- Recycle bin -->
     <string name="restore">Restore</string>
     <string name="restore_all_messages">Restore all messages</string>

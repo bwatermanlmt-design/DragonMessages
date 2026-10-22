@@ -63,6 +63,20 @@
             android:parentActivityName=".activities.MainActivity" />
 
         <activity
+            android:name=".activities.QuarantinedConversationsActivity"
+            android:configChanges="orientation"
+            android:exported="false"
+            android:label="@string/quarantined_conversations"
+            android:parentActivityName=".activities.MainActivity" />
+
+        <activity
+            android:name=".activities.FilterAuditLogActivity"
+            android:configChanges="orientation"
+            android:exported="false"
+            android:label="@string/filter_log"
+            android:parentActivityName=".activities.QuarantinedConversationsActivity" />
+
+        <activity
             android:name=".activities.ThreadActivity"
             android:configChanges="orientation"
             android:exported="false"

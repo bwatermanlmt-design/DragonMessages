@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingLeft="@dimen/activity_margin"
+    android:paddingTop="@dimen/small_margin"
+    android:paddingRight="@dimen/activity_margin"
+    android:paddingBottom="@dimen/small_margin">
+
+    <org.fossify.commons.views.MyTextView
+        android:id="@+id/audit_entry_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="@dimen/normal_text_size"
+        android:textStyle="bold" />
+
+    <org.fossify.commons.views.MyTextView
+        android:id="@+id/audit_entry_subtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:alpha="0.7"
+        android:textSize="@dimen/smaller_text_size" />
+
+</LinearLayout>
