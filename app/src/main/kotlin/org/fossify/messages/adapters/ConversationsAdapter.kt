@@ -15,6 +15,7 @@ import org.fossify.messages.R
 import org.fossify.messages.activities.SimpleActivity
 import org.fossify.messages.dialogs.RenameConversationDialog
 import org.fossify.messages.extensions.config
+import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.extensions.deleteConversation
 import org.fossify.messages.extensions.dialNumber
 import org.fossify.messages.extensions.launchConversationDetails
@@ -25,10 +26,12 @@ import org.fossify.messages.extensions.updateConversationArchivedStatus
 import org.fossify.messages.helpers.refreshConversations
 import org.fossify.messages.messaging.isShortCodeWithLetters
 import org.fossify.messages.models.Conversation
+import org.fossify.messages.models.Mailbox
 
 class ConversationsAdapter(
     activity: SimpleActivity,
     recyclerView: MyRecyclerView,
+    private val currentMailbox: String? = null,
     onRefresh: () -> Unit,
     itemClick: (Any) -> Unit
 ) : BaseConversationsAdapter(activity, recyclerView, onRefresh, itemClick) {
@@ -55,6 +58,8 @@ class ConversationsAdapter(
             findItem(R.id.cab_conversation_details).isVisible = isSingleSelection
             findItem(R.id.cab_mark_as_read).isVisible = selectedItems.any { !it.read }
             findItem(R.id.cab_mark_as_unread).isVisible = selectedItems.any { it.read }
+            findItem(R.id.cab_move_to_locker).isVisible = currentMailbox != Mailbox.LOCKER
+            findItem(R.id.cab_move_out_of_locker).isVisible = currentMailbox == Mailbox.LOCKER
             findItem(R.id.cab_archive).isVisible = archiveAvailable
             checkPinBtnVisibility(this)
         }
@@ -79,6 +84,8 @@ class ConversationsAdapter(
 
             R.id.cab_mark_as_read -> markAsRead()
             R.id.cab_mark_as_unread -> markAsUnread()
+            R.id.cab_move_to_locker -> moveToMailbox(Mailbox.LOCKER)
+            R.id.cab_move_out_of_locker -> moveToMailbox(Mailbox.CONTACTS)
             R.id.cab_pin_conversation -> pinConversation(true)
             R.id.cab_unpin_conversation -> pinConversation(false)
             R.id.cab_select_all -> selectAll()
@@ -114,6 +121,44 @@ class ConversationsAdapter(
             activity.runOnUiThread {
                 submitList(newList)
                 finishActMode()
+            }
+        }
+    }
+
+    /**
+     * A hand move between mailboxes: sets the mailbox and marks the
+     * conversation manually filed, so automated filing never overrides it.
+     * The moved conversations leave this list, as the target is never the
+     * mailbox being viewed.
+     */
+    private fun moveToMailbox(targetMailbox: String) {
+        if (selectedKeys.isEmpty()) {
+            return
+        }
+
+        val conversationsToMove =
+            currentList.filter { selectedKeys.contains(it.hashCode()) } as ArrayList<Conversation>
+        ensureBackgroundThread {
+            conversationsToMove.forEach {
+                activity.conversationsDB.updateMailboxManuallyFiled(it.threadId, targetMailbox)
+            }
+
+            val newList = try {
+                currentList.toMutableList().apply { removeAll(conversationsToMove) }
+            } catch (ignored: Exception) {
+                currentList.toMutableList()
+            }
+
+            activity.runOnUiThread {
+                if (newList.none { selectedKeys.contains(it.hashCode()) }) {
+                    refreshConversations()
+                    finishActMode()
+                } else {
+                    submitList(newList)
+                    if (newList.isEmpty()) {
+                        refreshConversations()
+                    }
+                }
             }
         }
     }

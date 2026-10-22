@@ -70,6 +70,16 @@
         android:title="@string/conversation_details"
         app:showAsAction="never" />
     <item
+        android:id="@+id/cab_move_to_locker"
+        android:showAsAction="never"
+        android:title="@string/move_to_locker"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/cab_move_out_of_locker"
+        android:showAsAction="never"
+        android:title="@string/move_out_of_locker"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/cab_block_number"
         android:showAsAction="never"
         android:title="@string/block_number"

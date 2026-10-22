@@ -93,6 +93,11 @@
     <string name="skipped_manually_filed">Filed by hand, left alone</string>
     <string name="skipped_locker">In the Locker, left alone</string>
     <string name="already_filed">Already filed correctly</string>
+    <string name="mailboxes">Mailboxes</string>
+    <string name="move_to_locker">Move to Locker</string>
+    <string name="move_out_of_locker">Move out of Locker</string>
+    <string name="unlock_locker">Unlock the Locker</string>
+    <string name="locker_subtitle">Locked — biometric or device credential required</string>
     <!-- Recycle bin -->
     <string name="restore">Restore</string>
     <string name="restore_all_messages">Restore all messages</string>

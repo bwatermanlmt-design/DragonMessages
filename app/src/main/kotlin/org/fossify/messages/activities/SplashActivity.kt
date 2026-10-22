@@ -5,7 +5,8 @@ import org.fossify.commons.activities.BaseSplashActivity
 
 class SplashActivity : BaseSplashActivity() {
     override fun initActivity() {
-        startActivity(Intent(this, MainActivity::class.java))
+        // The app opens on the mailboxes (folder view), not a merged list.
+        startActivity(Intent(this, FolderViewActivity::class.java))
         finish()
     }
 }

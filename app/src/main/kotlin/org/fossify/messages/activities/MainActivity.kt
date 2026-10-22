@@ -63,11 +63,13 @@ import org.fossify.messages.extensions.getConversations
 import org.fossify.messages.extensions.getMessages
 import org.fossify.messages.extensions.insertOrUpdateConversation
 import org.fossify.messages.extensions.messagesDB
+import org.fossify.messages.helpers.MAILBOX_FILTER
 import org.fossify.messages.helpers.SEARCHED_MESSAGE_ID
 import org.fossify.messages.helpers.THREAD_ID
 import org.fossify.messages.helpers.THREAD_TITLE
 import org.fossify.messages.models.Conversation
 import org.fossify.messages.models.Events
+import org.fossify.messages.models.Mailbox
 import org.fossify.messages.models.Message
 import org.fossify.messages.models.SearchResult
 import org.greenrobot.eventbus.EventBus
@@ -84,6 +86,9 @@ class MainActivity : SimpleActivity() {
     private var lastSearchedText = ""
     private var bus: EventBus? = null
 
+    /** Mailbox this instance is filtered to (from the folder view), or null for the merged list. */
+    private var mailboxFilter: String? = null
+
     private val binding by viewBinding(ActivityMainBinding::inflate)
 
     @SuppressLint("InlinedApi")
@@ -91,8 +96,10 @@ class MainActivity : SimpleActivity() {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
         appLaunched(BuildConfig.APPLICATION_ID)
+        mailboxFilter = intent.getStringExtra(MAILBOX_FILTER)?.takeIf { it in Mailbox.ALL }
         setupOptionsMenu()
         refreshMenuItems()
+        setupMailboxTitle()
 
         setupEdgeToEdge(padBottomImeAndSystem = listOf(binding.conversationsList))
 
@@ -110,6 +117,7 @@ class MainActivity : SimpleActivity() {
         super.onResume()
         updateMenuColors()
         refreshMenuItems()
+        setupMailboxTitle()
 
         getOrCreateConversationsAdapter().apply {
             if (storedTextColor != getProperTextColor()) {
@@ -186,6 +194,12 @@ class MainActivity : SimpleActivity() {
             }
             return@setOnMenuItemClickListener true
         }
+    }
+
+    /** A filtered instance is titled after its mailbox, like a mail folder. */
+    private fun setupMailboxTitle() {
+        val filter = mailboxFilter ?: return
+        binding.mainMenu.requireToolbar().title = getString(Mailbox.displayNameRes(filter))
     }
 
     private fun refreshMenuItems() {
@@ -290,7 +304,12 @@ class MainActivity : SimpleActivity() {
     private fun getCachedConversations() {
         ensureBackgroundThread {
             val conversations = try {
-                conversationsDB.getNonArchived().toMutableList() as ArrayList<Conversation>
+                val filter = mailboxFilter
+                if (filter != null) {
+                    conversationsDB.getByMailbox(filter).toMutableList() as ArrayList<Conversation>
+                } else {
+                    conversationsDB.getNonArchived().toMutableList() as ArrayList<Conversation>
+                }
             } catch (_: Exception) {
                 ArrayList()
             }
@@ -365,7 +384,12 @@ class MainActivity : SimpleActivity() {
                 }
             }
 
-            val allConversations = conversationsDB.getNonArchived() as ArrayList<Conversation>
+            val filter = mailboxFilter
+            val allConversations = if (filter != null) {
+                conversationsDB.getByMailbox(filter).toMutableList() as ArrayList<Conversation>
+            } else {
+                conversationsDB.getNonArchived() as ArrayList<Conversation>
+            }
             runOnUiThread {
                 setupConversations(allConversations)
             }
@@ -388,6 +412,7 @@ class MainActivity : SimpleActivity() {
             currAdapter = ConversationsAdapter(
                 activity = this,
                 recyclerView = binding.conversationsList,
+                currentMailbox = mailboxFilter,
                 onRefresh = { notifyDatasetChanged() },
                 itemClick = { handleConversationClick(it) }
             )

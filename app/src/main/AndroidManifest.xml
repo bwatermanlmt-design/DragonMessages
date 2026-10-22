@@ -48,6 +48,12 @@
             android:exported="true" />
 
         <activity
+            android:name=".activities.FolderViewActivity"
+            android:configChanges="orientation"
+            android:exported="false"
+            android:label="@string/mailboxes" />
+
+        <activity
             android:name=".activities.RecycleBinConversationsActivity"
             android:configChanges="orientation"
             android:exported="true"
