@@ -1282,6 +1282,9 @@ fun Context.insertOrUpdateConversation(
         if (updatedConv.mailbox != cachedConv.mailbox) {
             updatedConv = updatedConv.copy(mailbox = cachedConv.mailbox)
         }
+        if (updatedConv.manuallyFiled != cachedConv.manuallyFiled) {
+            updatedConv = updatedConv.copy(manuallyFiled = cachedConv.manuallyFiled)
+        }
     }
     conversationsDB.insertOrUpdate(updatedConv)
 }

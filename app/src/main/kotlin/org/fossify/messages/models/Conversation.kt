@@ -20,6 +20,7 @@ data class Conversation(
     @ColumnInfo(name = "archived") var isArchived: Boolean = false,
     @ColumnInfo(name = "unread_count") var unreadCount: Int = 0,
     @ColumnInfo(name = "mailbox", defaultValue = Mailbox.CONTACTS) var mailbox: String = Mailbox.CONTACTS,
+    @ColumnInfo(name = "manually_filed", defaultValue = "0") var manuallyFiled: Boolean = false,
 ) {
 
     companion object {
@@ -36,7 +37,8 @@ data class Conversation(
                 old.isGroupConversation == new.isGroupConversation &&
                 old.phoneNumber == new.phoneNumber &&
                 old.unreadCount == new.unreadCount &&
-                old.mailbox == new.mailbox
+                old.mailbox == new.mailbox &&
+                old.manuallyFiled == new.manuallyFiled
         }
     }
 }

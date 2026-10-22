@@ -39,7 +39,7 @@ import org.fossify.messages.models.SenderTags
         FilterAuditEntry::class,
         SenderTags::class
     ],
-    version = 12
+    version = 13
 )
 @TypeConverters(Converters::class)
 abstract class MessagesDatabase : RoomDatabase() {
@@ -84,6 +84,7 @@ abstract class MessagesDatabase : RoomDatabase() {
                             .addMigrations(MIGRATION_9_10)
                             .addMigrations(MIGRATION_10_11)
                             .addMigrations(MIGRATION_11_12)
+                            .addMigrations(MIGRATION_12_13)
                             .build()
                     }
                 }
@@ -209,6 +210,14 @@ abstract class MessagesDatabase : RoomDatabase() {
                         "CREATE TABLE IF NOT EXISTS `sender_tags` (`number` TEXT NOT NULL, `tags` TEXT NOT NULL, PRIMARY KEY(`number`))"
                     )
                 }
+            }
+        }
+
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Conversations filed by hand get marked, so automated filing
+                // (the retroactive pass) never overrides Ben's own filing.
+                db.execSQL("ALTER TABLE conversations ADD COLUMN `manually_filed` INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

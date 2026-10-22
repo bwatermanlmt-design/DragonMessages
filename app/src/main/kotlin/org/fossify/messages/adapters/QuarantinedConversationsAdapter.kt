@@ -76,7 +76,7 @@ class QuarantinedConversationsAdapter(
         ensureBackgroundThread {
             val conversationsToRelease = getSelectedItems()
             conversationsToRelease.forEach {
-                activity.conversationsDB.updateMailbox(it.threadId, Mailbox.CONTACTS)
+                activity.conversationsDB.updateMailboxManuallyFiled(it.threadId, Mailbox.CONTACTS)
             }
 
             removeConversationsFromList(conversationsToRelease)
@@ -106,7 +106,7 @@ class QuarantinedConversationsAdapter(
         val selected = getSelectedItems()
         selected.forEach {
             activity.addBlockedNumber(it.phoneNumber)
-            activity.conversationsDB.updateMailbox(it.threadId, Mailbox.SPAM)
+            activity.conversationsDB.updateMailboxManuallyFiled(it.threadId, Mailbox.SPAM)
         }
 
         if (mailbox == Mailbox.SPAM) {
