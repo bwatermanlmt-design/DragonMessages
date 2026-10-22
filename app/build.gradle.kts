@@ -69,7 +69,10 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".debug"
+            // Fork dev identity: installs alongside stock Fossify (and its debug
+            // builds) while the final app name/branding is undecided.
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
         }
         release {
             isMinifyEnabled = true
