@@ -3,21 +3,24 @@ package org.fossify.messages.models
 import org.fossify.messages.R
 
 /**
- * The mailboxes a conversation can live in. Rules deliver conversations to a
- * mailbox; notification behaviour follows the mailbox, not the rule.
+ * The mailboxes a conversation can live in. Rules deliver conversations to
+ * a mailbox; the folders are organization only — they carry no volume
+ * policy. Every folder notifies normally except Spam, which is where the
+ * filters send what they catch, and the Locker, which notifies as a
+ * content-free warning instead of a preview.
  * Stored as the [Conversation.mailbox] value and in filter rule actions.
  */
 object Mailbox {
-    /** Whitelisted people: contacts and approved senders. Rings normally. */
+    /** Whitelisted people: person contacts (not business-labeled). */
     const val CONTACTS = "contacts"
 
-    /** Short codes and services: bank alerts, 2FA codes, delivery notices. */
+    /** Business-labeled contacts, short codes, and service IDs. */
     const val AUTH = "auth"
 
-    /** Unknown and undecided. Silent review queue. */
+    /** Senders who aren't in the address book: "Not in Contacts". */
     const val QUARANTINE = "quarantine"
 
-    /** Rule-matched junk and explicitly blocked senders. Never notifies. */
+    /** Filter-caught junk and explicitly blocked senders. Never notifies. */
     const val SPAM = "spam"
 
     /** Locked area. Assigned manually only; rules never deliver here. */
@@ -25,9 +28,13 @@ object Mailbox {
 
     val ALL = listOf(CONTACTS, AUTH, QUARANTINE, SPAM, LOCKER)
 
-    /** Mailboxes whose incoming messages are stored without any notification. */
+    /**
+     * Mailboxes whose incoming messages arrive silently: only Spam, the
+     * filter output. The Locker is not silent either — it announces itself
+     * as a warning with no content (see NotificationHelper).
+     */
     fun silencesNotifications(mailbox: String): Boolean {
-        return mailbox == QUARANTINE || mailbox == SPAM || mailbox == LOCKER
+        return mailbox == SPAM
     }
 
     /** String resource naming the mailbox, for folder rows and list titles. */

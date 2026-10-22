@@ -1,45 +1,69 @@
 package org.fossify.messages.filtering
 
+import org.fossify.messages.models.FilterRule
 import org.fossify.messages.models.Mailbox
 
 /**
- * Thread-state precedence (Ben's ruling, 2026-10-22): filtering judges
- * conversations, never individual messages, and participation is approval.
+ * Final filing semantics (Ben's rulings, 2026-10-22): one evaluation order
+ * that turns the rule engine's raw verdict into the mailbox a conversation
+ * actually ends up in. Pure, so the receive path and the retroactive pass
+ * share exactly this behaviour:
  *
- * A pure function that takes the rule engine's verdict for an incoming
- * message and the conversation's existing state, and returns the mailbox
- * the conversation must actually end up in:
- *
- *  - An explicitly blocked sender files to Spam regardless of everything.
- *    (On the receive path such senders never even reach evaluation — the
- *    system BlockedNumberProvider drops them first — but the rule is part
- *    of the contract, so it lives here and is tested here.)
- *  - A conversation Ben filed by hand keeps its mailbox.
- *  - A conversation in the Locker keeps its mailbox: the Locker is
- *    hand-filled only, in both directions.
- *  - An **engaged** conversation — one containing a message Ben sent —
- *    cannot be demoted to Spam or Quarantine by a receive-time verdict,
- *    whatever the message contains. Verdicts that agree with the current
- *    mailbox, or move the thread to My Contacts / Auth & Services, are
- *    applied as usual.
- *  - Anything else (a genuinely new or untouched thread) takes the verdict.
+ *  0. A sender Ben blocked files to Spam — always, contacts included.
+ *     (On the receive path such senders never reach evaluation — the system
+ *     BlockedNumberProvider drops them first — but the rule is part of the
+ *     contract, so it lives here and is tested here.)
+ *  1. A conversation in the Locker keeps the Locker, and one Ben filed by
+ *     hand keeps his filing: his hand outranks the address book below.
+ *  2. Contacts are settled before content rules: a person contact's home
+ *     is My Contacts, a business-labeled contact's home is Auth & Services,
+ *     and no verdict — Spam, Quarantine, anything — can move a contact
+ *     anywhere else.
+ *  3. Participation is spam-immunity, nothing more: on an **engaged**
+ *     thread (Ben has sent a message in it) a Spam verdict falls through —
+ *     the rules are re-evaluated with every Spam-delivering rule removed
+ *     and that verdict is used instead. Engagement confers no other
+ *     protection: an engaged non-contact still files to Not in Contacts.
+ *  4. Guard: a Contacts verdict for a short-code or alphanumeric sender
+ *     becomes Auth & Services — services are informational, never people.
+ *  5. Anything else takes the verdict as evaluated.
  */
 object ThreadPrecedence {
 
     fun resolve(
         currentMailbox: String?,
-        verdictMailbox: String,
+        verdict: RuleVerdict,
+        facts: MessageFacts,
+        rules: List<FilterRule>,
         engaged: Boolean,
         manuallyFiled: Boolean,
         senderBlocked: Boolean,
-    ): String {
-        if (senderBlocked) return Mailbox.SPAM
-        if (currentMailbox == null) return verdictMailbox
-        if (manuallyFiled) return currentMailbox
-        if (currentMailbox == Mailbox.LOCKER) return currentMailbox
-        if (engaged && (verdictMailbox == Mailbox.SPAM || verdictMailbox == Mailbox.QUARANTINE)) {
-            return currentMailbox
+    ): RuleVerdict {
+        if (senderBlocked) return verdict.copy(mailbox = Mailbox.SPAM)
+        if (currentMailbox == Mailbox.LOCKER) return verdict.copy(mailbox = Mailbox.LOCKER)
+        if (manuallyFiled && currentMailbox != null) return verdict.copy(mailbox = currentMailbox)
+
+        if (facts.senderInContacts) {
+            val home = if (facts.businessLabeled) Mailbox.AUTH else Mailbox.CONTACTS
+            return verdict.copy(mailbox = home)
         }
-        return verdictMailbox
+
+        if (engaged && verdict.mailbox == Mailbox.SPAM) {
+            val nonSpamRules = rules.filterNot { it.mailbox == Mailbox.SPAM }
+            return guardServiceClass(RuleEngine.evaluate(nonSpamRules, facts), facts)
+        }
+
+        return guardServiceClass(verdict, facts)
+    }
+
+    /** Short codes and alphanumeric IDs are services, never people. */
+    private fun guardServiceClass(verdict: RuleVerdict, facts: MessageFacts): RuleVerdict {
+        if (verdict.mailbox != Mailbox.CONTACTS) return verdict
+        val senderClass = SenderClassifier.classify(facts.sender)
+        return if (senderClass == SenderClassifier.SHORT_CODE || senderClass == SenderClassifier.ALPHANUMERIC) {
+            verdict.copy(mailbox = Mailbox.AUTH)
+        } else {
+            verdict
+        }
     }
 }

@@ -14,12 +14,14 @@ class RetroFilerTest {
         sender: String = "+14805550137",
         body: String = "hello there",
         inContacts: Boolean = false,
+        business: Boolean = false,
         tags: Set<String> = emptySet()
     ) = MessageFacts(
         sender = sender,
         body = body,
         senderInContacts = inContacts,
-        senderTags = tags
+        senderTags = tags,
+        businessLabeled = business
     )
 
     private fun retro(
@@ -111,24 +113,37 @@ class RetroFilerTest {
 
     // endregion
 
-    // region protections
+    // region engaged threads: spam-immunity only, filed like everything else
 
     @Test
-    fun `engaged conversation is kept against a spam verdict`() {
+    fun `engaged conversation with spam content falls through to not in contacts`() {
         val decision = RetroFiler.decide(
             retro(facts(body = "deal inside! Stop2End"), engaged = true),
             starterRules
         )
-        assertEquals(RetroFiler.Decision.Skip(RetroFiler.SkipReason.ENGAGED), decision)
+        assertEquals(Mailbox.QUARANTINE, filedMailbox(decision))
     }
 
     @Test
-    fun `engaged conversation is kept against a quarantine verdict`() {
+    fun `engaged conversation files to not in contacts on the plain verdict`() {
         val decision = RetroFiler.decide(
             retro(facts(), engaged = true),
             starterRules
         )
-        assertEquals(RetroFiler.Decision.Skip(RetroFiler.SkipReason.ENGAGED), decision)
+        assertEquals(Mailbox.QUARANTINE, filedMailbox(decision))
+    }
+
+    @Test
+    fun `engaged conversation whose fall-through agrees is unchanged`() {
+        val decision = RetroFiler.decide(
+            retro(
+                facts(body = "Hi Gerrit! Reply Stop2End to opt out"),
+                engaged = true,
+                currentMailbox = Mailbox.QUARANTINE
+            ),
+            starterRules
+        )
+        assertEquals(RetroFiler.Decision.AlreadyFiled, decision)
     }
 
     @Test
@@ -139,6 +154,19 @@ class RetroFilerTest {
         )
         assertEquals(Mailbox.CONTACTS, filedMailbox(decision))
     }
+
+    @Test
+    fun `business labeled contact files to auth`() {
+        val decision = RetroFiler.decide(
+            retro(facts(inContacts = true, business = true), currentMailbox = Mailbox.CONTACTS),
+            starterRules
+        )
+        assertEquals(Mailbox.AUTH, filedMailbox(decision))
+    }
+
+    // endregion
+
+    // region protections
 
     @Test
     fun `manually filed conversations are never overridden`() {

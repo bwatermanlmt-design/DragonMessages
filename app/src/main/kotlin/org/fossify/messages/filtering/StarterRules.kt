@@ -4,27 +4,44 @@ import org.fossify.messages.models.FilterRule
 import org.fossify.messages.models.Mailbox
 
 /**
- * The starter rule pack, seeded on first run. Built from Ben's real traffic:
- * campaign texts carry a "Stop2End" fingerprint his bank's messages lack, and
- * broker spam keeps arriving addressed to a nonexistent "Gerrit".
+ * The starter rule pack, seeded on first run and repaired to the current
+ * version by the seed migration (see FilterRuleSeeder). Built from Ben's
+ * real traffic: campaign texts carry a "Stop2End" fingerprint his bank's
+ * messages lack, and broker spam keeps arriving addressed to a nonexistent
+ * "Gerrit".
+ *
+ * Priorities encode Ben's evaluation order: contacts are settled first
+ * (ThreadPrecedence then routes business-labeled contacts to Auth &
+ * Services and makes contacts immune to everything below), then content
+ * rules, then sender class, then the default. The old `approved`-tag rule
+ * is retired — placement authority lives in the address book alone.
  */
 object StarterRules {
 
     const val TAG_CAMPAIGNS = "campaigns"
     const val TAG_APPROVED = "approved"
 
+    /** Reserved sender tag: a number Ben silenced by hand. Notification-only. */
+    const val TAG_MUTED = "muted"
+
     fun defaultRules(): List<FilterRule> {
         return listOf(
             FilterRule(
-                name = "Campaign fingerprint (Stop2End) to Spam",
+                name = "Contacts to My Contacts",
                 priority = 10,
+                senderInContacts = true,
+                mailbox = Mailbox.CONTACTS
+            ),
+            FilterRule(
+                name = "Campaign fingerprint (Stop2End) to Spam",
+                priority = 20,
                 keyword = "Stop2End",
                 mailbox = Mailbox.SPAM,
                 assignTag = TAG_CAMPAIGNS
             ),
             FilterRule(
-                name = "Addressed to Gerrit to Quarantine",
-                priority = 20,
+                name = "Addressed to Gerrit to Not in Contacts",
+                priority = 25,
                 keyword = "Gerrit",
                 mailbox = Mailbox.QUARANTINE
             ),
@@ -35,22 +52,25 @@ object StarterRules {
                 mailbox = Mailbox.AUTH
             ),
             FilterRule(
-                name = "Contacts to My Contacts",
-                priority = 40,
-                senderInContacts = true,
-                mailbox = Mailbox.CONTACTS
+                name = "Service IDs to Auth & Services",
+                priority = 32,
+                senderClass = SenderClassifier.ALPHANUMERIC,
+                mailbox = Mailbox.AUTH
             ),
             FilterRule(
-                name = "Approved senders to My Contacts",
-                priority = 45,
-                senderTag = TAG_APPROVED,
-                mailbox = Mailbox.CONTACTS
-            ),
-            FilterRule(
-                name = "Default: unknown senders to Quarantine",
+                name = "Default: unknown senders to Not in Contacts",
                 priority = 50,
                 mailbox = Mailbox.QUARANTINE
             )
         )
     }
+
+    /** Rule names the seed migration recognises as its own, across versions. */
+    val ALL_STARTER_NAMES: Set<String> = defaultRules().map { it.name }.toSet() + setOf(
+        // Seed version 1 (phases 1–3): content rules outranked contacts and
+        // an `approved` tag could promote a sender into My Contacts.
+        "Addressed to Gerrit to Quarantine",
+        "Approved senders to My Contacts",
+        "Default: unknown senders to Quarantine"
+    )
 }

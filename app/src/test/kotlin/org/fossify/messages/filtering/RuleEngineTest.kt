@@ -49,13 +49,14 @@ class RuleEngineTest {
     }
 
     @Test
-    fun `gerrit mail goes to quarantine`() {
+    fun `gerrit mail goes to not in contacts, which notifies normally`() {
         val verdict = RuleEngine.evaluate(
             starterRules,
             facts(body = "Hi Gerrit, your brokerage account needs attention")
         )
         assertEquals(Mailbox.QUARANTINE, verdict.mailbox)
-        assertTrue(verdict.silencesNotifications)
+        assertFalse(verdict.silencesNotifications)
+        assertTrue(verdict.shouldNotify)
     }
 
     @Test
@@ -76,28 +77,53 @@ class RuleEngineTest {
     }
 
     @Test
-    fun `approved tag sender goes to contacts`() {
+    fun `alphanumeric service id with a clean body goes to auth`() {
         val verdict = RuleEngine.evaluate(
             starterRules,
-            facts(tags = setOf(StarterRules.TAG_APPROVED))
+            facts(sender = "USPS", body = "Your package arrives Thursday")
         )
-        assertEquals(Mailbox.CONTACTS, verdict.mailbox)
+        assertEquals(Mailbox.AUTH, verdict.mailbox)
     }
 
     @Test
-    fun `unknown long number defaults to quarantine`() {
+    fun `alphanumeric service id with stop2end goes to spam`() {
+        val verdict = RuleEngine.evaluate(
+            starterRules,
+            facts(sender = "USPS", body = "Track your package! Stop2End")
+        )
+        assertEquals(Mailbox.SPAM, verdict.mailbox)
+    }
+
+    @Test
+    fun `muted tag does not change any verdict`() {
+        val spammy = RuleEngine.evaluate(
+            starterRules,
+            facts(body = "deal inside! Stop2End", tags = setOf(StarterRules.TAG_MUTED))
+        )
+        assertEquals(Mailbox.SPAM, spammy.mailbox)
+
+        val plain = RuleEngine.evaluate(
+            starterRules,
+            facts(tags = setOf(StarterRules.TAG_MUTED))
+        )
+        assertEquals(Mailbox.QUARANTINE, plain.mailbox)
+        assertFalse(plain.notificationMuted)
+    }
+
+    @Test
+    fun `unknown long number defaults to not in contacts`() {
         val verdict = RuleEngine.evaluate(starterRules, facts())
         assertEquals(Mailbox.QUARANTINE, verdict.mailbox)
-        assertEquals("Default: unknown senders to Quarantine", verdict.ruleName)
+        assertEquals("Default: unknown senders to Not in Contacts", verdict.ruleName)
     }
 
     @Test
-    fun `first match wins - spam fingerprint beats contacts and short code`() {
+    fun `contacts are settled before the spam fingerprint, short codes are not`() {
         val fromContact = RuleEngine.evaluate(
             starterRules,
             facts(body = "deal inside! Stop2End", inContacts = true)
         )
-        assertEquals(Mailbox.SPAM, fromContact.mailbox)
+        assertEquals(Mailbox.CONTACTS, fromContact.mailbox)
 
         val fromShortCode = RuleEngine.evaluate(
             starterRules,
@@ -110,7 +136,7 @@ class RuleEngineTest {
     fun `rules are honoured in priority order even when passed unordered`() {
         val verdict = RuleEngine.evaluate(
             starterRules.shuffled(),
-            facts(body = "Stop2End", inContacts = true)
+            facts(body = "Stop2End")
         )
         assertEquals(Mailbox.SPAM, verdict.mailbox)
     }

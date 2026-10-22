@@ -9,7 +9,8 @@ import org.fossify.messages.models.Mailbox
  *
  * Rules are considered in ascending priority order (ties broken by id);
  * disabled rules are skipped and the first matching rule wins. If no rule
- * matches, the built-in default applies: silent quarantine.
+ * matches, the built-in default applies: Not in Contacts. The raw verdict
+ * is then tempered by [ThreadPrecedence], which owns the final semantics.
  */
 object RuleEngine {
 
