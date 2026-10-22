@@ -26,11 +26,15 @@ class RetroFilerTest {
         facts: MessageFacts,
         isGroup: Boolean = false,
         manuallyFiled: Boolean = false,
-        currentMailbox: String = Mailbox.CONTACTS
+        currentMailbox: String = Mailbox.CONTACTS,
+        engaged: Boolean = false,
+        hasInbound: Boolean = true
     ) = RetroConversationFacts(
         isGroupConversation = isGroup,
         manuallyFiled = manuallyFiled,
         currentMailbox = currentMailbox,
+        engaged = engaged,
+        hasInboundMessage = hasInbound,
         facts = facts
     )
 
@@ -76,15 +80,64 @@ class RetroFilerTest {
 
     // endregion
 
-    // region protections
+    // region group conversations are judged by the same rules
 
     @Test
-    fun `group conversations are skipped even when content matches spam`() {
+    fun `group conversations are filed by the same rules, spam included`() {
         val decision = RetroFiler.decide(
             retro(facts(body = "deal inside! Stop2End"), isGroup = true),
             starterRules
         )
-        assertEquals(RetroFiler.Decision.Skip(RetroFiler.SkipReason.GROUP), decision)
+        assertEquals(Mailbox.SPAM, filedMailbox(decision))
+    }
+
+    @Test
+    fun `group conversation with a contact sender files to contacts`() {
+        val decision = RetroFiler.decide(
+            retro(facts(inContacts = true), isGroup = true, currentMailbox = Mailbox.QUARANTINE),
+            starterRules
+        )
+        assertEquals(Mailbox.CONTACTS, filedMailbox(decision))
+    }
+
+    @Test
+    fun `group conversation with no inbound message is skipped`() {
+        val decision = RetroFiler.decide(
+            retro(facts(body = "deal inside! Stop2End"), isGroup = true, hasInbound = false),
+            starterRules
+        )
+        assertEquals(RetroFiler.Decision.Skip(RetroFiler.SkipReason.NO_INBOUND), decision)
+    }
+
+    // endregion
+
+    // region protections
+
+    @Test
+    fun `engaged conversation is kept against a spam verdict`() {
+        val decision = RetroFiler.decide(
+            retro(facts(body = "deal inside! Stop2End"), engaged = true),
+            starterRules
+        )
+        assertEquals(RetroFiler.Decision.Skip(RetroFiler.SkipReason.ENGAGED), decision)
+    }
+
+    @Test
+    fun `engaged conversation is kept against a quarantine verdict`() {
+        val decision = RetroFiler.decide(
+            retro(facts(), engaged = true),
+            starterRules
+        )
+        assertEquals(RetroFiler.Decision.Skip(RetroFiler.SkipReason.ENGAGED), decision)
+    }
+
+    @Test
+    fun `engaged conversation can still be upgraded`() {
+        val decision = RetroFiler.decide(
+            retro(facts(inContacts = true), engaged = true, currentMailbox = Mailbox.QUARANTINE),
+            starterRules
+        )
+        assertEquals(Mailbox.CONTACTS, filedMailbox(decision))
     }
 
     @Test

@@ -8,6 +8,10 @@ data class RetroConversationFacts(
     val isGroupConversation: Boolean,
     val manuallyFiled: Boolean,
     val currentMailbox: String,
+    /** Ben has sent a message in this thread: participation is approval. */
+    val engaged: Boolean = false,
+    /** The thread has at least one inbound message to judge it by. */
+    val hasInboundMessage: Boolean = true,
     val facts: MessageFacts,
 )
 
@@ -16,18 +20,23 @@ data class RetroConversationFacts(
  * function from (conversation facts, rules) to a decision, so the "File
  * existing conversations" pass is unit-testable on the JVM.
  *
- * The pass files on sender facts plus the thread's most recent inbound
- * message, with three hard protections:
- *  - group conversations are skipped (sender rules don't describe a crowd),
+ * The pass files on the facts of the thread's most recent inbound message.
+ * Group conversations are judged by exactly the same rules as 1:1 threads
+ * (Ben's correction, 2026-10-22: his group traffic is usually spam) — the
+ * only group-specific out is a group thread with no inbound message at
+ * all, which offers nothing to judge. The hard protections:
  *  - conversations Ben filed by hand are never overridden,
- *  - the Locker is never touched in either direction: its conversations are
- *    left alone, and no rule can deliver a conversation into it.
+ *  - the Locker is never touched in either direction: its conversations
+ *    are left alone, and no rule can deliver a conversation into it,
+ *  - an engaged conversation (Ben has sent a message in it) is never
+ *    demoted to Spam or Quarantine — thread-state precedence applies here
+ *    exactly as on the receive path (see [ThreadPrecedence]).
  * A conversation the engine already agrees with is reported as
  * [Decision.AlreadyFiled], which is what makes re-runs idempotent.
  */
 object RetroFiler {
 
-    enum class SkipReason { GROUP, MANUALLY_FILED, LOCKER }
+    enum class SkipReason { MANUALLY_FILED, LOCKER, NO_INBOUND, ENGAGED }
 
     sealed interface Decision {
         /** Deliver the conversation to the verdict's mailbox. */
@@ -45,10 +54,11 @@ object RetroFiler {
         isGroupConversation: Boolean,
         manuallyFiled: Boolean,
         currentMailbox: String,
+        hasInboundMessage: Boolean,
     ): SkipReason? = when {
         currentMailbox == Mailbox.LOCKER -> SkipReason.LOCKER
         manuallyFiled -> SkipReason.MANUALLY_FILED
-        isGroupConversation -> SkipReason.GROUP
+        isGroupConversation && !hasInboundMessage -> SkipReason.NO_INBOUND
         else -> null
     }
 
@@ -56,14 +66,25 @@ object RetroFiler {
         skipReason(
             isGroupConversation = conversation.isGroupConversation,
             manuallyFiled = conversation.manuallyFiled,
-            currentMailbox = conversation.currentMailbox
+            currentMailbox = conversation.currentMailbox,
+            hasInboundMessage = conversation.hasInboundMessage
         )?.let { return Decision.Skip(it) }
 
         val verdict = RuleEngine.evaluate(rules, conversation.facts)
+        // The Locker is filled by hand only, never by a filing pass.
+        if (verdict.mailbox == Mailbox.LOCKER) return Decision.Skip(SkipReason.LOCKER)
+
+        val effectiveMailbox = ThreadPrecedence.resolve(
+            currentMailbox = conversation.currentMailbox,
+            verdictMailbox = verdict.mailbox,
+            engaged = conversation.engaged,
+            manuallyFiled = conversation.manuallyFiled,
+            senderBlocked = false
+        )
         return when {
-            // The Locker is filled by hand only, never by a filing pass.
-            verdict.mailbox == Mailbox.LOCKER -> Decision.Skip(SkipReason.LOCKER)
-            verdict.mailbox == conversation.currentMailbox -> Decision.AlreadyFiled
+            // Precedence held the thread in place against a demoting verdict.
+            effectiveMailbox != verdict.mailbox -> Decision.Skip(SkipReason.ENGAGED)
+            effectiveMailbox == conversation.currentMailbox -> Decision.AlreadyFiled
             else -> Decision.File(verdict)
         }
     }

@@ -7,6 +7,7 @@ import org.fossify.commons.helpers.ContactLookupResult
 import org.fossify.commons.helpers.SimpleContactsHelper
 import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.extensions.filterAuditDB
+import org.fossify.messages.extensions.getMMSSender
 import org.fossify.messages.extensions.filterRulesDB
 import org.fossify.messages.extensions.senderTagsDB
 import org.fossify.messages.filtering.MessageFacts
@@ -147,19 +148,27 @@ object FilterEvaluator {
 
     /**
      * The retro mode used by the "File existing conversations" pass: the
-     * same rules over a stored conversation, using its sender facts and the
-     * body of its most recent inbound message. Applies the decision (mailbox
-     * move, tag assignment) and records it in the audit log on the retro
-     * channel. Protected conversations (groups, hand-filed, the Locker)
+     * same rules over a stored conversation, judged on its most recent
+     * inbound message. 1:1 threads are judged on the conversation's own
+     * number, as before; group threads are judged on the sender and body
+     * of that most recent inbound message, by exactly the same rules.
+     * Applies the decision (mailbox move, tag assignment) and records it
+     * in the audit log on the retro channel, with group filings marked as
+     * such. Protected conversations (hand-filed, the Locker, engaged
+     * threads facing demotion, group threads with no inbound message)
      * come back [RetroOutcome.Skipped] with the skip itself audited.
      */
     fun evaluateRetro(context: Context, conversation: Conversation): RetroOutcome {
         FilterRuleSeeder.seedIfNeeded(context)
 
+        // The two protections decidable from the stored row alone, checked
+        // before any provider work. RetroFiler.decide() re-checks them (and
+        // everything else) as the single authority.
         RetroFiler.skipReason(
             isGroupConversation = conversation.isGroupConversation,
             manuallyFiled = conversation.manuallyFiled,
-            currentMailbox = conversation.mailbox
+            currentMailbox = conversation.mailbox,
+            hasInboundMessage = true
         )?.let { reason ->
             recordAudit(
                 context = context,
@@ -171,15 +180,32 @@ object FilterEvaluator {
             return RetroOutcome.Skipped(reason)
         }
 
+        val latestSms = latestInboundSms(context, conversation.threadId)
+        val latestMms = latestInboundMms(context, conversation.threadId)
+        val latestInbound = listOfNotNull(latestSms, latestMms).maxByOrNull { it.dateMillis }
+
+        val judgedSender = if (conversation.isGroupConversation) {
+            latestInbound?.sender?.takeIf { it.isNotBlank() } ?: conversation.phoneNumber
+        } else {
+            conversation.phoneNumber
+        }
+        val judgedBody = if (conversation.isGroupConversation) {
+            latestInbound?.body ?: ""
+        } else {
+            latestSms?.body ?: ""
+        }
+
         val retroFacts = RetroConversationFacts(
             isGroupConversation = conversation.isGroupConversation,
             manuallyFiled = conversation.manuallyFiled,
             currentMailbox = conversation.mailbox,
+            engaged = hasOutgoingMessage(context, conversation.threadId),
+            hasInboundMessage = latestInbound != null,
             facts = MessageFacts(
-                sender = conversation.phoneNumber,
-                body = latestInboundBody(context, conversation.threadId),
-                senderInContacts = isSenderInContacts(context, conversation.phoneNumber),
-                senderTags = context.senderTagsDB.getForNumber(conversation.phoneNumber)?.tagList?.toSet()
+                sender = judgedSender,
+                body = judgedBody,
+                senderInContacts = isSenderInContacts(context, judgedSender),
+                senderTags = context.senderTagsDB.getForNumber(judgedSender)?.tagList?.toSet()
                     ?: emptySet()
             )
         )
@@ -187,19 +213,23 @@ object FilterEvaluator {
         return when (val decision = RetroFiler.decide(retroFacts, context.filterRulesDB.getAllEnabled())) {
             is RetroFiler.Decision.File -> {
                 val verdict = decision.verdict
+                val auditRuleName = if (conversation.isGroupConversation) {
+                    verdict.ruleName + FilterAuditEntry.RETRO_GROUP_SUFFIX
+                } else {
+                    verdict.ruleName
+                }
                 recordAudit(
-                    context, conversation.phoneNumber, verdict.ruleName, verdict.mailbox,
+                    context, conversation.phoneNumber, auditRuleName, verdict.mailbox,
                     FilterAuditEntry.CHANNEL_RETRO
                 )
                 verdict.assignTag?.let { tag ->
-                    runCatching { assignTag(context, conversation.phoneNumber, tag) }
+                    runCatching { assignTag(context, judgedSender, tag) }
                 }
                 context.conversationsDB.updateMailbox(conversation.threadId, verdict.mailbox)
                 RetroOutcome.Filed(verdict)
             }
 
             is RetroFiler.Decision.Skip -> {
-                // Only reachable for a rule that tries to deliver into the Locker.
                 recordAudit(
                     context, conversation.phoneNumber, skipRuleName(decision.reason),
                     conversation.mailbox, FilterAuditEntry.CHANNEL_RETRO
@@ -212,9 +242,10 @@ object FilterEvaluator {
     }
 
     private fun skipRuleName(reason: RetroFiler.SkipReason): String = when (reason) {
-        RetroFiler.SkipReason.GROUP -> FilterAuditEntry.RETRO_SKIP_GROUP
         RetroFiler.SkipReason.MANUALLY_FILED -> FilterAuditEntry.RETRO_SKIP_MANUALLY_FILED
         RetroFiler.SkipReason.LOCKER -> FilterAuditEntry.RETRO_SKIP_LOCKER
+        RetroFiler.SkipReason.NO_INBOUND -> FilterAuditEntry.RETRO_SKIP_NO_INBOUND
+        RetroFiler.SkipReason.ENGAGED -> FilterAuditEntry.RETRO_SKIP_ENGAGED
     }
 
     private fun recordAudit(context: Context, sender: String, ruleName: String, mailbox: String, channel: String) {
@@ -231,9 +262,12 @@ object FilterEvaluator {
         }
     }
 
-    /** Body of the thread's most recent inbound SMS, or "" if there is none. */
-    private fun latestInboundBody(context: Context, threadId: Long): String {
-        val projection = arrayOf(Telephony.Sms.BODY)
+    /** One inbound message of a thread, as the retro pass sees it. */
+    private data class InboundMessage(val sender: String, val body: String, val dateMillis: Long)
+
+    /** The thread's most recent inbound SMS, or null if it has none. */
+    private fun latestInboundSms(context: Context, threadId: Long): InboundMessage? {
+        val projection = arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE)
         val selection = "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms.TYPE} = ?"
         val selectionArgs = arrayOf(
             threadId.toString(),
@@ -247,10 +281,55 @@ object FilterEvaluator {
                 selectionArgs,
                 "${Telephony.Sms.DATE} DESC LIMIT 1"
             )?.use { cursor ->
-                if (cursor.moveToFirst()) cursor.getString(0) ?: "" else ""
-            } ?: ""
+                if (cursor.moveToFirst()) {
+                    InboundMessage(
+                        sender = cursor.getString(0) ?: "",
+                        body = cursor.getString(1) ?: "",
+                        dateMillis = cursor.getLong(2)
+                    )
+                } else {
+                    null
+                }
+            }
         } catch (e: Exception) {
-            ""
+            null
+        }
+    }
+
+    /**
+     * The thread's most recent inbound MMS, or null if it has none. Only the
+     * sender is read (via the address table); MMS text parts are not
+     * extracted, so the body is empty — the same SMS-only body caveat the
+     * retro pass has always had.
+     */
+    private fun latestInboundMms(context: Context, threadId: Long): InboundMessage? {
+        val projection = arrayOf(Telephony.Mms._ID, Telephony.Mms.DATE)
+        val selection = "${Telephony.Mms.THREAD_ID} = ? AND ${Telephony.Mms.MESSAGE_BOX} = ?"
+        val selectionArgs = arrayOf(
+            threadId.toString(),
+            Telephony.Mms.MESSAGE_BOX_INBOX.toString()
+        )
+        return try {
+            context.contentResolver.query(
+                Telephony.Mms.CONTENT_URI,
+                projection,
+                selection,
+                selectionArgs,
+                "${Telephony.Mms.DATE} DESC LIMIT 1"
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    InboundMessage(
+                        sender = context.getMMSSender(cursor.getLong(0)),
+                        body = "",
+                        // The MMS provider stores dates in seconds.
+                        dateMillis = cursor.getLong(1) * 1000
+                    )
+                } else {
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            null
         }
     }
 

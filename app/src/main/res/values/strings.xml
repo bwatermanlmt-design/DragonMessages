@@ -89,7 +89,8 @@
     <string name="file_existing_conversations">File existing conversations</string>
     <string name="filing_existing_conversations">Filing existing conversations…</string>
     <string name="filed_conversations">Conversations filed</string>
-    <string name="skipped_group_conversations">Group conversations skipped</string>
+    <string name="skipped_no_inbound">No incoming message, left alone</string>
+    <string name="skipped_engaged">You take part, left alone</string>
     <string name="skipped_manually_filed">Filed by hand, left alone</string>
     <string name="skipped_locker">In the Locker, left alone</string>
     <string name="already_filed">Already filed correctly</string>
