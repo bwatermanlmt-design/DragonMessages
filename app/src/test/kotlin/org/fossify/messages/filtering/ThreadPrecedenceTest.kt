@@ -150,6 +150,80 @@ class ThreadPrecedenceTest {
 
     // endregion
 
+    // region answered threads in Not in Contacts are invisible to the filters
+
+    @Test
+    fun `answered short code in not in contacts stays there`() {
+        val verdict = resolve(
+            current = Mailbox.QUARANTINE,
+            facts = facts(sender = "34291", body = "Power update: all clear"),
+            engaged = true
+        )
+        assertEquals(Mailbox.QUARANTINE, verdict.mailbox)
+    }
+
+    @Test
+    fun `answered thread in not in contacts with stop2end stays there`() {
+        val verdict = resolve(
+            current = Mailbox.QUARANTINE,
+            facts = facts(body = "deal inside! Stop2End"),
+            engaged = true
+        )
+        assertEquals(Mailbox.QUARANTINE, verdict.mailbox)
+    }
+
+    @Test
+    fun `answered thread in not in contacts discards the raw verdict's tag`() {
+        val verdict = resolve(
+            current = Mailbox.QUARANTINE,
+            facts = facts(body = "deal inside! Stop2End"),
+            engaged = true
+        )
+        assertEquals(null, verdict.assignTag)
+    }
+
+    @Test
+    fun `answered contact in not in contacts is brought home`() {
+        val verdict = resolve(
+            current = Mailbox.QUARANTINE,
+            facts = facts(inContacts = true),
+            engaged = true
+        )
+        assertEquals(Mailbox.CONTACTS, verdict.mailbox)
+    }
+
+    @Test
+    fun `answered business contact in not in contacts files to auth`() {
+        val verdict = resolve(
+            current = Mailbox.QUARANTINE,
+            facts = facts(inContacts = true, business = true),
+            engaged = true
+        )
+        assertEquals(Mailbox.AUTH, verdict.mailbox)
+    }
+
+    @Test
+    fun `unanswered short code in not in contacts still files to auth`() {
+        val verdict = resolve(
+            current = Mailbox.QUARANTINE,
+            facts = facts(sender = "34291", body = "Power update: all clear")
+        )
+        assertEquals(Mailbox.AUTH, verdict.mailbox)
+    }
+
+    @Test
+    fun `blocked answered thread in not in contacts files to spam`() {
+        val verdict = resolve(
+            current = Mailbox.QUARANTINE,
+            facts = facts(),
+            engaged = true,
+            senderBlocked = true
+        )
+        assertEquals(Mailbox.SPAM, verdict.mailbox)
+    }
+
+    // endregion
+
     // region Ben's hand outranks everything
 
     @Test

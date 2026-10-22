@@ -8,7 +8,11 @@ data class RetroConversationFacts(
     val isGroupConversation: Boolean,
     val manuallyFiled: Boolean,
     val currentMailbox: String,
-    /** Ben has sent a message in this thread: participation is spam-immunity. */
+    /**
+     * Ben has sent a message in this thread: participation is
+     * spam-immunity — and, once the thread sits in Not in Contacts,
+     * invisibility to the filters (see [RetroFiler]).
+     */
     val engaged: Boolean = false,
     /** The thread has at least one inbound message to judge it by. */
     val hasInboundMessage: Boolean = true,
@@ -30,13 +34,17 @@ data class RetroConversationFacts(
  * protections:
  *  - conversations Ben filed by hand are never overridden,
  *  - the Locker is never touched in either direction: its conversations
- *    are left alone, and no rule can deliver a conversation into it.
+ *    are left alone, and no rule can deliver a conversation into it,
+ *  - a conversation Ben has answered that already sits in Not in Contacts
+ *    is invisible to the filters and left alone — unless its sender is in
+ *    his contacts, because the address book outranks the ignore and the
+ *    thread is still brought home.
  * A conversation the engine already agrees with is reported as
  * [Decision.AlreadyFiled], which is what makes re-runs idempotent.
  */
 object RetroFiler {
 
-    enum class SkipReason { MANUALLY_FILED, LOCKER, NO_INBOUND }
+    enum class SkipReason { MANUALLY_FILED, LOCKER, NO_INBOUND, ENGAGED_IN_QUARANTINE }
 
     sealed interface Decision {
         /** Deliver the conversation to the verdict's mailbox. */
@@ -69,6 +77,19 @@ object RetroFiler {
             currentMailbox = conversation.currentMailbox,
             hasInboundMessage = conversation.hasInboundMessage
         )?.let { return Decision.Skip(it) }
+
+        // Answered threads already sitting in Not in Contacts are
+        // invisible to the filters (Ben's clarification, 2026-10-22) and
+        // left alone. This is decided here rather than in skipReason()
+        // because the address book outranks the ignore — a contact is
+        // still brought home by the evaluation below — and skipReason()
+        // has no facts to consult.
+        if (conversation.engaged &&
+            conversation.currentMailbox == Mailbox.QUARANTINE &&
+            !conversation.facts.senderInContacts
+        ) {
+            return Decision.Skip(SkipReason.ENGAGED_IN_QUARANTINE)
+        }
 
         val verdict = RuleEngine.evaluate(rules, conversation.facts)
         // The Locker is filled by hand only, never by a filing pass.

@@ -113,7 +113,7 @@ class RetroFilerTest {
 
     // endregion
 
-    // region engaged threads: spam-immunity only, filed like everything else
+    // region engaged threads: spam-immunity, and invisibility once in Not in Contacts
 
     @Test
     fun `engaged conversation with spam content falls through to not in contacts`() {
@@ -134,7 +134,7 @@ class RetroFilerTest {
     }
 
     @Test
-    fun `engaged conversation whose fall-through agrees is unchanged`() {
+    fun `answered conversation in not in contacts is left alone`() {
         val decision = RetroFiler.decide(
             retro(
                 facts(body = "Hi Gerrit! Reply Stop2End to opt out"),
@@ -143,7 +143,33 @@ class RetroFilerTest {
             ),
             starterRules
         )
-        assertEquals(RetroFiler.Decision.AlreadyFiled, decision)
+        assertEquals(RetroFiler.Decision.Skip(RetroFiler.SkipReason.ENGAGED_IN_QUARANTINE), decision)
+    }
+
+    @Test
+    fun `answered short code in not in contacts is left alone`() {
+        val decision = RetroFiler.decide(
+            retro(
+                facts(sender = "34291", body = "Power update: all clear"),
+                engaged = true,
+                currentMailbox = Mailbox.QUARANTINE
+            ),
+            starterRules
+        )
+        assertEquals(RetroFiler.Decision.Skip(RetroFiler.SkipReason.ENGAGED_IN_QUARANTINE), decision)
+    }
+
+    @Test
+    fun `answered conversation in not in contacts with spam content is left alone`() {
+        val decision = RetroFiler.decide(
+            retro(
+                facts(body = "deal inside! Stop2End"),
+                engaged = true,
+                currentMailbox = Mailbox.QUARANTINE
+            ),
+            starterRules
+        )
+        assertEquals(RetroFiler.Decision.Skip(RetroFiler.SkipReason.ENGAGED_IN_QUARANTINE), decision)
     }
 
     @Test
@@ -167,6 +193,15 @@ class RetroFilerTest {
     // endregion
 
     // region protections
+
+    @Test
+    fun `answered manually filed conversation keeps the manual protection`() {
+        val decision = RetroFiler.decide(
+            retro(facts(), manuallyFiled = true, engaged = true, currentMailbox = Mailbox.QUARANTINE),
+            starterRules
+        )
+        assertEquals(RetroFiler.Decision.Skip(RetroFiler.SkipReason.MANUALLY_FILED), decision)
+    }
 
     @Test
     fun `manually filed conversations are never overridden`() {

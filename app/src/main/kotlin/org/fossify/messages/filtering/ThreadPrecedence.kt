@@ -19,14 +19,20 @@ import org.fossify.messages.models.Mailbox
  *     is My Contacts, a business-labeled contact's home is Auth & Services,
  *     and no verdict — Spam, Quarantine, anything — can move a contact
  *     anywhere else.
- *  3. Participation is spam-immunity, nothing more: on an **engaged**
- *     thread (Ben has sent a message in it) a Spam verdict falls through —
- *     the rules are re-evaluated with every Spam-delivering rule removed
- *     and that verdict is used instead. Engagement confers no other
- *     protection: an engaged non-contact still files to Not in Contacts.
- *  4. Guard: a Contacts verdict for a short-code or alphanumeric sender
+ *  3. Answered threads already sitting in Not in Contacts are invisible
+ *     to the filters (Ben's clarification, 2026-10-22): on an **engaged**
+ *     thread (Ben has sent a message in it) whose home is Quarantine, no
+ *     verdict — content or class — re-files it. It stays until Ben moves
+ *     it, adds the sender to his contacts (arm 2 outranks this), or blocks
+ *     the sender (arm 0 outranks this).
+ *  4. Participation is spam-immunity, nothing more: on an engaged thread
+ *     a Spam verdict falls through — the rules are re-evaluated with
+ *     every Spam-delivering rule removed and that verdict is used
+ *     instead. Engagement confers no other protection: an engaged
+ *     non-contact still files to Not in Contacts.
+ *  5. Guard: a Contacts verdict for a short-code or alphanumeric sender
  *     becomes Auth & Services — services are informational, never people.
- *  5. Anything else takes the verdict as evaluated.
+ *  6. Anything else takes the verdict as evaluated.
  */
 object ThreadPrecedence {
 
@@ -46,6 +52,13 @@ object ThreadPrecedence {
         if (facts.senderInContacts) {
             val home = if (facts.businessLabeled) Mailbox.AUTH else Mailbox.CONTACTS
             return verdict.copy(mailbox = home)
+        }
+
+        // Answered threads sitting in Not in Contacts are invisible to the
+        // filters: the raw verdict is discarded whole, tag assignment
+        // included — the filters did not act on this thread at all.
+        if (engaged && currentMailbox == Mailbox.QUARANTINE) {
+            return verdict.copy(mailbox = Mailbox.QUARANTINE, assignTag = null)
         }
 
         if (engaged && verdict.mailbox == Mailbox.SPAM) {
