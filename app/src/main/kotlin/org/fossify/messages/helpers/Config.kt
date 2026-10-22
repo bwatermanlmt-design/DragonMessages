@@ -151,4 +151,9 @@ class Config(context: Context) : BaseConfig(context) {
         get() = prefs.getBoolean(KEEP_CONVERSATIONS_ARCHIVED, false)
         set(keepConversationsArchived) = prefs.edit()
             .putBoolean(KEEP_CONVERSATIONS_ARCHIVED, keepConversationsArchived).apply()
+
+    var filterRulesSeeded: Boolean
+        get() = prefs.getBoolean(FILTER_RULES_SEEDED, false)
+        set(filterRulesSeeded) = prefs.edit()
+            .putBoolean(FILTER_RULES_SEEDED, filterRulesSeeded).apply()
 }
