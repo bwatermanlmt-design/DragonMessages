@@ -15,13 +15,17 @@ class RetroFilerTest {
         body: String = "hello there",
         inContacts: Boolean = false,
         business: Boolean = false,
-        tags: Set<String> = emptySet()
+        tags: Set<String> = emptySet(),
+        labelHome: String? = null,
+        senderFiled: String? = null
     ) = MessageFacts(
         sender = sender,
         body = body,
         senderInContacts = inContacts,
         senderTags = tags,
-        businessLabeled = business
+        businessLabeled = business,
+        labelHome = labelHome,
+        senderFiledMailbox = senderFiled
     )
 
     private fun retro(
@@ -319,6 +323,79 @@ class RetroFilerTest {
     fun `already quarantined unknown sender is unchanged`() {
         val decision = RetroFiler.decide(
             retro(facts(), currentMailbox = Mailbox.QUARANTINE),
+            starterRules
+        )
+        assertEquals(RetroFiler.Decision.AlreadyFiled, decision)
+    }
+
+    // endregion
+
+    // region revision 7: label homes and sender-level filings in the scan
+
+    private val familyFolder = Mailbox.customMailboxId("folder-family")
+    private val workFolder = Mailbox.customMailboxId("folder-work")
+
+    @Test
+    fun `contact with a label-mapped home is filed to the folder`() {
+        val decision = RetroFiler.decide(
+            retro(facts(inContacts = true, labelHome = familyFolder), currentMailbox = Mailbox.QUARANTINE),
+            starterRules
+        )
+        assertEquals(familyFolder, filedMailbox(decision))
+    }
+
+    @Test
+    fun `relabelled contact is re-homed by the scan`() {
+        // The thread sits in the folder the old label said; the contact's
+        // labels changed, so the scan takes it to the new label's home.
+        val decision = RetroFiler.decide(
+            retro(facts(inContacts = true, labelHome = workFolder), currentMailbox = familyFolder),
+            starterRules
+        )
+        assertEquals(workFolder, filedMailbox(decision))
+    }
+
+    @Test
+    fun `thread away from its sender-filed home is filed home`() {
+        // E.g. the thread was recreated after deletion, landing at the
+        // install default, while the sender's record says Family.
+        val decision = RetroFiler.decide(
+            retro(facts(senderFiled = familyFolder), currentMailbox = Mailbox.CONTACTS),
+            starterRules
+        )
+        assertEquals(familyFolder, filedMailbox(decision))
+    }
+
+    @Test
+    fun `sender filing outranks the answered-thread ignore`() {
+        // Engaged and sitting in Not in Contacts would normally be left
+        // alone — but Ben filed this sender, so the scan takes it home.
+        val decision = RetroFiler.decide(
+            retro(
+                facts(senderFiled = familyFolder),
+                currentMailbox = Mailbox.QUARANTINE,
+                engaged = true
+            ),
+            starterRules
+        )
+        assertEquals(familyFolder, filedMailbox(decision))
+    }
+
+    @Test
+    fun `thread already at its sender-filed home is unchanged`() {
+        val decision = RetroFiler.decide(
+            retro(facts(senderFiled = familyFolder), currentMailbox = familyFolder),
+            starterRules
+        )
+        assertEquals(RetroFiler.Decision.AlreadyFiled, decision)
+    }
+
+    @Test
+    fun `non-contact hand-filed to contacts by sender record survives the scan`() {
+        // Ben pulled one stranger thread into My Contacts by hand; the
+        // sender record makes the scan agree it belongs there.
+        val decision = RetroFiler.decide(
+            retro(facts(senderFiled = Mailbox.CONTACTS), currentMailbox = Mailbox.CONTACTS),
             starterRules
         )
         assertEquals(RetroFiler.Decision.AlreadyFiled, decision)

@@ -247,6 +247,52 @@ class RuleEngineTest {
 
     // endregion
 
+    // region sender-contains condition (revision 7, the macro criterion)
+
+    @Test
+    fun `sender contains matches the number or the display name`() {
+        val rule = FilterRule(
+            name = "sender contains",
+            priority = 1,
+            senderContains = "landlord",
+            mailbox = Mailbox.AUTH
+        )
+        val byName = MessageFacts(
+            sender = "+14805550137",
+            body = "hi",
+            senderInContacts = true,
+            senderName = "The Landlord"
+        )
+        assertTrue(RuleEngine.matches(rule, byName))
+
+        val byNumber = MessageFacts(
+            sender = "+14805550137",
+            body = "hi",
+            senderInContacts = false
+        )
+        val numberRule = rule.copy(senderContains = "555")
+        assertTrue(RuleEngine.matches(numberRule, byNumber))
+        assertFalse(RuleEngine.matches(rule, byNumber))
+    }
+
+    @Test
+    fun `macro flags survive an export and reimport round trip`() {
+        val macro = FilterRule(
+            name = "Rent things",
+            priority = 15,
+            senderContains = "rent",
+            mailbox = Mailbox.customMailboxId("folder-family"),
+            isMacro = true,
+            macroAutomatic = true
+        )
+        val ruleSet = listOf(macro).toRuleSet(emptyList())
+        val text = FilterRulesExporter.json.encodeToString(FilterRuleSet.serializer(), ruleSet)
+        val parsed = FilterRulesImporter.parseRuleSet(text.byteInputStream())
+        assertEquals(ruleSet, parsed)
+    }
+
+    // endregion
+
     // region rule set export
 
     @Test
