@@ -173,6 +173,34 @@
             android:parentActivityName=".activities.SettingsActivity" />
 
         <activity
+            android:name=".activities.ManageFoldersActivity"
+            android:configChanges="orientation"
+            android:exported="false"
+            android:label="@string/manage_folders"
+            android:parentActivityName=".activities.FolderViewActivity" />
+
+        <activity
+            android:name=".activities.MacrosActivity"
+            android:configChanges="orientation"
+            android:exported="false"
+            android:label="@string/macros"
+            android:parentActivityName=".activities.FolderViewActivity" />
+
+        <activity
+            android:name=".activities.MacroEditorActivity"
+            android:configChanges="orientation"
+            android:exported="false"
+            android:label="@string/macros"
+            android:parentActivityName=".activities.MacrosActivity" />
+
+        <activity
+            android:name=".activities.MacroRunActivity"
+            android:configChanges="orientation"
+            android:exported="false"
+            android:label="@string/macros"
+            android:parentActivityName=".activities.MacrosActivity" />
+
+        <activity
             android:name=".activities.VCardViewerActivity"
             android:configChanges="orientation"
             android:exported="false"

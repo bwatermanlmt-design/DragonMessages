@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One matching conversation in a macro run: tick box, who, latest
+     message, and the folder it sits in now. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="?attr/selectableItemBackground"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="@dimen/activity_margin"
+    android:paddingTop="10dp"
+    android:paddingEnd="@dimen/activity_margin"
+    android:paddingBottom="10dp">
+
+    <org.fossify.commons.views.MyAppCompatCheckbox
+        android:id="@+id/match_checkbox"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/small_margin"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <org.fossify.commons.views.MyTextView
+            android:id="@+id/match_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="@dimen/bigger_text_size"
+            android:textStyle="bold" />
+
+        <org.fossify.commons.views.MyTextView
+            android:id="@+id/match_snippet"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:alpha="0.65"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textSize="@dimen/normal_text_size" />
+
+        <org.fossify.commons.views.MyTextView
+            android:id="@+id/match_current_folder"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:alpha="0.65"
+            android:textSize="@dimen/normal_text_size" />
+
+    </LinearLayout>
+
+</LinearLayout>
