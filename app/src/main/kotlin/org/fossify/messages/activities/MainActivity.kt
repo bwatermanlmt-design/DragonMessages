@@ -320,10 +320,24 @@ class MainActivity : SimpleActivity() {
                 listOf()
             }
 
+            // The set the provider sync reconciles against must be every
+            // stored conversation, whatever folder it sits in — not just
+            // the folder on screen. A stored thread missing from this set
+            // is treated as brand new by getNewConversations and
+            // re-registered with factory defaults (Contacts mailbox, no
+            // hand-filed mark, no mute), which is how filings used to
+            // evaporate on refresh. The display list above stays filtered;
+            // only the sync set is complete.
+            val allStored = try {
+                conversationsDB.getAllNonArchivedConversations()
+            } catch (_: Exception) {
+                conversations
+            }
+
             runOnUiThread {
                 setupConversations(conversations, cached = true)
                 getNewConversations(
-                    (conversations + archived).toMutableList() as ArrayList<Conversation>
+                    (allStored + archived).toMutableList() as ArrayList<Conversation>
                 )
             }
             conversations.forEach {
@@ -341,8 +355,19 @@ class MainActivity : SimpleActivity() {
             conversations.forEach { clonedConversation ->
                 val threadIds = cachedConversations.map { it.threadId }
                 if (!threadIds.contains(clonedConversation.threadId)) {
-                    conversationsDB.insertOrUpdate(clonedConversation)
-                    cachedConversations.add(clonedConversation)
+                    // A thread the database does not know yet: insert it
+                    // through the preserving upsert (a stored row, if one
+                    // somehow exists, keeps its app-side state) and cache
+                    // the row as stored, so the passes below reconcile
+                    // against what is actually in the database — never
+                    // against the provider's default-filled copy.
+                    insertOrUpdateConversation(clonedConversation)
+                    val stored = try {
+                        conversationsDB.getConversationWithThreadId(clonedConversation.threadId)
+                    } catch (_: Exception) {
+                        null
+                    }
+                    cachedConversations.add(stored ?: clonedConversation)
                 }
             }
 

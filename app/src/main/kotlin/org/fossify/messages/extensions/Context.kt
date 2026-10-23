@@ -1280,27 +1280,10 @@ fun Context.insertOrUpdateConversation(
     conversation: Conversation,
     cachedConv: Conversation? = conversationsDB.getConversationWithThreadId(conversation.threadId),
 ) {
-    var updatedConv = conversation
-    if (cachedConv != null) {
-        // The provider-built conversation knows nothing of app-side state:
-        // keep the stored custom title and mailbox instead of resetting them.
-        if (cachedConv.usesCustomTitle) {
-            updatedConv = updatedConv.copy(
-                title = cachedConv.title,
-                usesCustomTitle = true
-            )
-        }
-        if (updatedConv.mailbox != cachedConv.mailbox) {
-            updatedConv = updatedConv.copy(mailbox = cachedConv.mailbox)
-        }
-        if (updatedConv.manuallyFiled != cachedConv.manuallyFiled) {
-            updatedConv = updatedConv.copy(manuallyFiled = cachedConv.manuallyFiled)
-        }
-        if (updatedConv.muted != cachedConv.muted) {
-            updatedConv = updatedConv.copy(muted = cachedConv.muted)
-        }
-    }
-    conversationsDB.insertOrUpdate(updatedConv)
+    // The provider-built conversation knows nothing of app-side state: the
+    // merge keeps the stored custom title, mailbox, hand-filed mark and mute
+    // instead of resetting them, so filings survive refresh cycles.
+    conversationsDB.insertOrUpdate(Conversation.mergeProviderConversation(cachedConv, conversation))
 }
 
 fun Context.renameConversation(conversation: Conversation, newTitle: String): Conversation {
