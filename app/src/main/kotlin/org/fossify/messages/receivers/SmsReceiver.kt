@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
 import org.fossify.commons.extensions.getMyContactsCursor
-import org.fossify.commons.extensions.isNumberBlocked
 import org.fossify.commons.helpers.SimpleContactsHelper
 import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.commons.models.PhoneNumber
@@ -48,9 +47,11 @@ class SmsReceiver : BroadcastReceiver() {
                 val status = parts.last().status
                 val body = buildString { parts.forEach { append(it.messageBody.orEmpty()) } }
 
-                // Explicit blocks in the system BlockedNumberProvider are law:
-                // they still drop the message outright, before any rule runs.
-                if (appContext.isNumberBlocked(address)) return@ensureBackgroundThread
+                // Blocked senders are not dropped here: the message flows
+                // through the evaluator like any other and lands in Spam
+                // (stored already-read, silent) via precedence step 0.
+                // Nothing is silently destroyed, so the Spam folder and the
+                // audit log show everything a block ever caught.
 
                 val threadId = appContext.getThreadId(address)
                 val verdict = FilterEvaluator.evaluateIncoming(

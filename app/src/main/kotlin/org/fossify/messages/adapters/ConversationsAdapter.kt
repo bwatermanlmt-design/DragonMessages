@@ -4,7 +4,6 @@ import android.content.Intent
 import android.text.TextUtils
 import android.view.Menu
 import org.fossify.commons.dialogs.ConfirmationDialog
-import org.fossify.commons.extensions.addBlockedNumber
 import org.fossify.commons.extensions.copyToClipboard
 import org.fossify.commons.extensions.launchActivityIntent
 import org.fossify.commons.extensions.notificationManager
@@ -23,6 +22,7 @@ import org.fossify.messages.extensions.markThreadMessagesRead
 import org.fossify.messages.extensions.markThreadMessagesUnread
 import org.fossify.messages.extensions.renameConversation
 import org.fossify.messages.extensions.updateConversationArchivedStatus
+import org.fossify.messages.helpers.FilterEvaluator
 import org.fossify.messages.helpers.refreshConversations
 import org.fossify.messages.messaging.isShortCodeWithLetters
 import org.fossify.messages.models.Conversation
@@ -105,22 +105,38 @@ class ConversationsAdapter(
         }
     }
 
+    /**
+     * The permanent block: each selected number is recorded (app record +
+     * system block list, see [FilterEvaluator.blockNumber]) and its
+     * conversation files to Spam at once. The block belongs to the number,
+     * so the sender's future threads land in Spam even if this one is
+     * deleted.
+     */
     private fun blockNumbers() {
         if (selectedKeys.isEmpty()) {
             return
         }
 
         val numbersToBlock = getSelectedItems()
-        val newList = currentList.toMutableList().apply { removeAll(numbersToBlock) }
 
         ensureBackgroundThread {
-            numbersToBlock.map { it.phoneNumber }.forEach { number ->
-                activity.addBlockedNumber(number)
+            numbersToBlock.forEach { conversation ->
+                FilterEvaluator.blockNumber(activity, conversation.phoneNumber)
+                activity.conversationsDB.updateMailboxManuallyFiled(conversation.threadId, Mailbox.SPAM)
             }
 
-            activity.runOnUiThread {
-                submitList(newList)
-                finishActMode()
+            if (currentMailbox == Mailbox.SPAM) {
+                // Already listed in Spam: the rows stay, only their state changed.
+                activity.runOnUiThread {
+                    finishActMode()
+                    refreshConversations()
+                }
+            } else {
+                val newList = currentList.toMutableList().apply { removeAll(numbersToBlock) }
+                activity.runOnUiThread {
+                    submitList(newList)
+                    finishActMode()
+                }
             }
         }
     }

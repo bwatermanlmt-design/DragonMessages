@@ -4,7 +4,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.result.contract.ActivityResultContracts
-import org.fossify.commons.activities.ManageBlockedNumbersActivity
 import org.fossify.commons.dialogs.ChangeDateTimeFormatDialog
 import org.fossify.commons.dialogs.ConfirmationDialog
 import org.fossify.commons.dialogs.RadioGroupDialog
@@ -313,7 +312,11 @@ class SettingsActivity : SimpleActivity() {
             getString(org.fossify.commons.R.string.manage_blocked_numbers)
         settingsManageBlockedNumbersHolder.beVisible()
         settingsManageBlockedNumbersHolder.setOnClickListener {
-            Intent(this@SettingsActivity, ManageBlockedNumbersActivity::class.java).apply {
+            // The app's own blocked-numbers screen: it lists the permanent
+            // record unioned with the system block list and lifts both on
+            // unblock, so a block placed by the filters' side of the app is
+            // never stranded where this screen cannot see it.
+            Intent(this@SettingsActivity, ManageBlockedSendersActivity::class.java).apply {
                 startActivity(this)
             }
         }

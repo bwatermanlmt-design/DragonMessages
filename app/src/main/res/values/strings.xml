@@ -87,7 +87,13 @@
     <string name="no_spam_conversations">No spam conversations have been found</string>
     <string name="release_to_contacts">Move to My Contacts</string>
     <string name="block_sender">Block sender</string>
-    <string name="block_senders_confirmation">Block the selected senders? Their numbers are added to the system block list and the conversations move to Spam.</string>
+    <string name="block_senders_confirmation">Block the selected senders? Their numbers are blocked permanently and the conversations move to Spam.</string>
+    <string name="blocked_numbers">Blocked numbers</string>
+    <string name="not_blocking_numbers">You are not blocking any numbers. A number you block — here, or from a conversation — stays blocked until you remove it, even if its conversations are deleted.</string>
+    <string name="add_a_blocked_number">Add a blocked number</string>
+    <string name="phone_number">Phone number</string>
+    <string name="unblock_number">Unblock</string>
+    <string name="unblock_confirmation">Unblock %1$s? Its future messages will be judged by the filters normally again.</string>
     <string name="filter_log">Filter log</string>
     <string name="no_filter_log_entries">No filter decisions have been recorded yet</string>
     <string name="export_filter_rules">Export filter rules</string>
@@ -105,6 +111,12 @@
     <string name="skipped_locker">In the Locker, left alone</string>
     <string name="already_filed">Already filed correctly</string>
     <string name="mailboxes">Mailboxes</string>
+    <string name="folder_view_hint">Long-press a folder to silence its notifications</string>
+    <string name="mailbox_contacts_subtitle">People in your address book</string>
+    <string name="mailbox_auth_subtitle">Banks, codes and services</string>
+    <string name="mailbox_quarantine_subtitle">Senders who are not in your contacts</string>
+    <string name="mailbox_spam_subtitle">Filter catches and blocked numbers</string>
+    <string name="unread_badge">%1$d new</string>
     <string name="move_to_locker">Move to Locker</string>
     <string name="move_out_of_locker">Move out of Locker</string>
     <string name="unlock_locker">Unlock the Locker</string>

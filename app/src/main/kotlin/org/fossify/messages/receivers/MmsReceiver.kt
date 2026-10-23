@@ -5,7 +5,6 @@ import android.net.Uri
 import com.bumptech.glide.Glide
 import com.klinker.android.send_message.MmsReceivedReceiver
 import org.fossify.commons.extensions.getMyContactsCursor
-import org.fossify.commons.extensions.isNumberBlocked
 import org.fossify.commons.extensions.showErrorToast
 import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.messages.R
@@ -29,11 +28,11 @@ import org.fossify.messages.models.Message
 class MmsReceiver : MmsReceivedReceiver() {
 
     override fun isAddressBlocked(context: Context, address: String): Boolean {
-        // Only explicit system-level blocks are answered here: when either of
-        // these callbacks returns true, the MMS library deletes the message
-        // it just downloaded. Everything else is filed by the rule engine in
-        // onMessageReceived instead, so nothing is ever silently destroyed.
-        return context.isNumberBlocked(address)
+        // Never true: a true verdict makes the library delete the MMS it
+        // just downloaded. Blocked senders are filed to Spam by the rule
+        // engine in onMessageReceived instead (precedence step 0), so
+        // nothing is ever silently destroyed.
+        return false
     }
 
     override fun isContentBlocked(context: Context, content: String): Boolean {

@@ -24,6 +24,14 @@ object StarterRules {
     /** Reserved sender tag: a number Ben silenced by hand. Notification-only. */
     const val TAG_MUTED = "muted"
 
+    /**
+     * Reserved sender tag: a number Ben blocked permanently. The tag is the
+     * app's own blocked-numbers record — it belongs to the number, survives
+     * thread deletion, and (via ThreadPrecedence step 0) files every future
+     * message from the number straight to Spam until Ben unblocks it.
+     */
+    const val TAG_BLOCKED = "blocked"
+
     fun defaultRules(): List<FilterRule> {
         return listOf(
             FilterRule(

@@ -30,13 +30,15 @@ class RetroFilerTest {
         manuallyFiled: Boolean = false,
         currentMailbox: String = Mailbox.CONTACTS,
         engaged: Boolean = false,
-        hasInbound: Boolean = true
+        hasInbound: Boolean = true,
+        senderBlocked: Boolean = false
     ) = RetroConversationFacts(
         isGroupConversation = isGroup,
         manuallyFiled = manuallyFiled,
         currentMailbox = currentMailbox,
         engaged = engaged,
         hasInboundMessage = hasInbound,
+        senderBlocked = senderBlocked,
         facts = facts
     )
 
@@ -228,6 +230,76 @@ class RetroFilerTest {
         )
         val decision = RetroFiler.decide(retro(facts(body = "a secret plan")), lockerRule)
         assertEquals(RetroFiler.Decision.Skip(RetroFiler.SkipReason.LOCKER), decision)
+    }
+
+    // endregion
+
+    // region permanent, number-level blocking
+
+    @Test
+    fun `blocked sender files to spam`() {
+        val decision = RetroFiler.decide(
+            retro(facts(), currentMailbox = Mailbox.QUARANTINE, senderBlocked = true),
+            starterRules
+        )
+        assertEquals(Mailbox.SPAM, filedMailbox(decision))
+    }
+
+    @Test
+    fun `blocked contact files to spam`() {
+        val decision = RetroFiler.decide(
+            retro(facts(inContacts = true), currentMailbox = Mailbox.CONTACTS, senderBlocked = true),
+            starterRules
+        )
+        assertEquals(Mailbox.SPAM, filedMailbox(decision))
+    }
+
+    @Test
+    fun `blocked answered thread in not in contacts files to spam, not skipped`() {
+        // A block breaks the answered-thread ignore.
+        val decision = RetroFiler.decide(
+            retro(
+                facts(),
+                currentMailbox = Mailbox.QUARANTINE,
+                engaged = true,
+                senderBlocked = true
+            ),
+            starterRules
+        )
+        assertEquals(Mailbox.SPAM, filedMailbox(decision))
+    }
+
+    @Test
+    fun `blocked hand-filed thread is still left alone`() {
+        // The retro pass's hand protections order ahead of the block.
+        val decision = RetroFiler.decide(
+            retro(
+                facts(),
+                currentMailbox = Mailbox.QUARANTINE,
+                manuallyFiled = true,
+                senderBlocked = true
+            ),
+            starterRules
+        )
+        assertEquals(RetroFiler.Decision.Skip(RetroFiler.SkipReason.MANUALLY_FILED), decision)
+    }
+
+    @Test
+    fun `blocked thread already in spam is unchanged`() {
+        val decision = RetroFiler.decide(
+            retro(facts(), currentMailbox = Mailbox.SPAM, senderBlocked = true),
+            starterRules
+        )
+        assertEquals(RetroFiler.Decision.AlreadyFiled, decision)
+    }
+
+    @Test
+    fun `unblocked sender is judged normally again`() {
+        val decision = RetroFiler.decide(
+            retro(facts(inContacts = true), currentMailbox = Mailbox.QUARANTINE, senderBlocked = false),
+            starterRules
+        )
+        assertEquals(Mailbox.CONTACTS, filedMailbox(decision))
     }
 
     // endregion

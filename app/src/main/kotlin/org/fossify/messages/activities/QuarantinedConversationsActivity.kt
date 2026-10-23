@@ -81,6 +81,11 @@ class QuarantinedConversationsActivity : SimpleActivity() {
                     true
                 }
 
+                R.id.blocked_numbers -> {
+                    startActivity(Intent(this, ManageBlockedSendersActivity::class.java))
+                    true
+                }
+
                 else -> false
             }
         }

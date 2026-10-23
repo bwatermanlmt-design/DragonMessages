@@ -53,7 +53,6 @@ import com.google.gson.reflect.TypeToken
 import org.fossify.commons.dialogs.ConfirmationDialog
 import org.fossify.commons.dialogs.PermissionRequiredDialog
 import org.fossify.commons.dialogs.RadioGroupDialog
-import org.fossify.commons.extensions.addBlockedNumber
 import org.fossify.commons.extensions.applyColorFilter
 import org.fossify.commons.extensions.beGone
 import org.fossify.commons.extensions.beVisible
@@ -156,6 +155,7 @@ import org.fossify.messages.extensions.updateConversationArchivedStatus
 import org.fossify.messages.extensions.updateLastConversationMessage
 import org.fossify.messages.extensions.updateScheduledMessagesThreadId
 import org.fossify.messages.helpers.AudioPlayerManager
+import org.fossify.messages.helpers.FilterEvaluator
 import org.fossify.messages.helpers.CAPTURE_AUDIO_INTENT
 import org.fossify.messages.helpers.CAPTURE_PHOTO_INTENT
 import org.fossify.messages.helpers.CAPTURE_VIDEO_INTENT
@@ -190,6 +190,7 @@ import org.fossify.messages.models.Attachment
 import org.fossify.messages.models.AttachmentSelection
 import org.fossify.messages.models.Conversation
 import org.fossify.messages.models.Events
+import org.fossify.messages.models.Mailbox
 import org.fossify.messages.models.Message
 import org.fossify.messages.models.MessageAttachment
 import org.fossify.messages.models.SenderTags
@@ -1213,9 +1214,13 @@ class ThreadActivity : SimpleActivity() {
 
         ConfirmationDialog(this, question) {
             ensureBackgroundThread {
+                // The permanent, number-level block (app record + system
+                // block list), and this conversation files to Spam — the
+                // block belongs to the numbers, so it outlives the thread.
                 numbers.forEach {
-                    addBlockedNumber(it)
+                    FilterEvaluator.blockNumber(this@ThreadActivity, it)
                 }
+                conversationsDB.updateMailboxManuallyFiled(threadId, Mailbox.SPAM)
                 refreshConversations()
                 finish()
             }

@@ -16,6 +16,12 @@ data class RetroConversationFacts(
     val engaged: Boolean = false,
     /** The thread has at least one inbound message to judge it by. */
     val hasInboundMessage: Boolean = true,
+    /**
+     * The judged sender is on Ben's permanent blocked-numbers record (or
+     * the system block list): its threads file straight to Spam, ahead of
+     * the answered-thread ignore — a block breaks the ignore.
+     */
+    val senderBlocked: Boolean = false,
     val facts: MessageFacts,
 )
 
@@ -38,7 +44,10 @@ data class RetroConversationFacts(
  *  - a conversation Ben has answered that already sits in Not in Contacts
  *    is invisible to the filters and left alone — unless its sender is in
  *    his contacts, because the address book outranks the ignore and the
- *    thread is still brought home.
+ *    thread is still brought home,
+ *  - a conversation whose judged sender is permanently blocked files
+ *    straight to Spam, ahead of the answered-thread ignore — but the two
+ *    hand protections above still win, exactly as the skips order them.
  * A conversation the engine already agrees with is reported as
  * [Decision.AlreadyFiled], which is what makes re-runs idempotent.
  */
@@ -77,6 +86,29 @@ object RetroFiler {
             currentMailbox = conversation.currentMailbox,
             hasInboundMessage = conversation.hasInboundMessage
         )?.let { return Decision.Skip(it) }
+
+        // A blocked sender files straight to Spam. This outranks the
+        // answered-thread ignore below (a block breaks the ignore) but not
+        // the hand protections above: a hand-filed or Locker thread keeps
+        // Ben's filing even for a blocked sender, as the skips ordered it.
+        if (conversation.senderBlocked) {
+            val verdict = RuleEngine.evaluate(rules, conversation.facts)
+            if (verdict.mailbox == Mailbox.LOCKER) return Decision.Skip(SkipReason.LOCKER)
+            val effective = ThreadPrecedence.resolve(
+                currentMailbox = conversation.currentMailbox,
+                verdict = verdict,
+                facts = conversation.facts,
+                rules = rules,
+                engaged = conversation.engaged,
+                manuallyFiled = conversation.manuallyFiled,
+                senderBlocked = true
+            )
+            return if (effective.mailbox == conversation.currentMailbox) {
+                Decision.AlreadyFiled
+            } else {
+                Decision.File(effective)
+            }
+        }
 
         // Answered threads already sitting in Not in Contacts are
         // invisible to the filters (Ben's clarification, 2026-10-22) and

@@ -248,6 +248,19 @@ class ThreadPrecedenceTest {
     }
 
     @Test
+    fun `blocked sender with no existing conversation files to spam`() {
+        // The thread was deleted after the block (or never existed): the
+        // block belongs to the number, so its next arrival still files
+        // straight to Spam.
+        val verdict = resolve(
+            current = null,
+            facts = facts(),
+            senderBlocked = true
+        )
+        assertEquals(Mailbox.SPAM, verdict.mailbox)
+    }
+
+    @Test
     fun `manually filed thread keeps Ben's filing over the address book`() {
         val verdict = resolve(
             current = Mailbox.AUTH,

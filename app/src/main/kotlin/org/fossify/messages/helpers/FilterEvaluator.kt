@@ -4,7 +4,11 @@ import android.content.Context
 import android.net.Uri
 import android.provider.ContactsContract
 import android.provider.Telephony
+import org.fossify.commons.extensions.addBlockedNumber
+import org.fossify.commons.extensions.deleteBlockedNumber
+import org.fossify.commons.extensions.getBlockedNumbers
 import org.fossify.commons.extensions.getMyContactsCursor
+import org.fossify.commons.extensions.isNumberBlocked
 import org.fossify.commons.helpers.ContactLookupResult
 import org.fossify.commons.helpers.SimpleContactsHelper
 import org.fossify.messages.extensions.config
@@ -13,6 +17,7 @@ import org.fossify.messages.extensions.filterAuditDB
 import org.fossify.messages.extensions.getMMSSender
 import org.fossify.messages.extensions.filterRulesDB
 import org.fossify.messages.extensions.senderTagsDB
+import org.fossify.messages.filtering.BlockedNumbers
 import org.fossify.messages.filtering.MessageFacts
 import org.fossify.messages.filtering.RetroConversationFacts
 import org.fossify.messages.filtering.RetroFiler
@@ -50,9 +55,10 @@ object FilterEvaluator {
      * or when the filters ignored the thread. Hand-set mutes
      * (conversation, number, folder) are folded in as notification
      * suppression only; they never change the placement. Blocked senders
-     * never reach this point — the system BlockedNumberProvider drops SMS
-     * in the receiver and the MMS library deletes blocked MMS — so
-     * [ThreadPrecedence]'s blocked case is not in play here.
+     * are evaluated like everyone else and land in Spam through
+     * [ThreadPrecedence] step 0: nothing is dropped or deleted on arrival,
+     * so a blocked message is stored already-read and silent in Spam —
+     * visible, auditable, and reversible by unblocking the number.
      */
     fun evaluateIncoming(
         context: Context,
@@ -79,7 +85,7 @@ object FilterEvaluator {
             rules = rules,
             engaged = engaged,
             manuallyFiled = conversation?.manuallyFiled == true,
-            senderBlocked = false
+            senderBlocked = isSenderBlocked(context, sender)
         )
 
         effective.assignTag?.let { tag ->
@@ -244,6 +250,7 @@ object FilterEvaluator {
             currentMailbox = conversation.mailbox,
             engaged = hasOutgoingMessage(context, conversation.threadId),
             hasInboundMessage = latestInbound != null,
+            senderBlocked = isSenderBlocked(context, judgedSender),
             facts = buildFacts(context, judgedSender, judgedBody)
         )
 
@@ -466,4 +473,92 @@ object FilterEvaluator {
         val merged = (existing?.tagList ?: emptyList()) + tag
         context.senderTagsDB.insertOrUpdate(SenderTags.of(sender, merged))
     }
+
+    private fun removeTag(context: Context, sender: String, tag: String) {
+        val existing = context.senderTagsDB.getForNumber(sender) ?: return
+        val remaining = existing.tagList - tag
+        context.senderTagsDB.insertOrUpdate(SenderTags.of(sender, remaining))
+    }
+
+    // region permanent, number-level blocking (Ben's requirement, 2026-10-22)
+
+    /**
+     * Whether [sender] is blocked: it is on the app's own blocked-numbers
+     * record (the reserved `blocked` sender tag, matched format-tolerantly)
+     * or in the system BlockedNumberProvider. The app record belongs to
+     * the number and survives thread deletion, so a blocked number's next
+     * thread — whenever it appears — files straight to Spam.
+     */
+    fun isSenderBlocked(context: Context, sender: String): Boolean {
+        if (context.isNumberBlocked(sender)) {
+            return true
+        }
+
+        val recorded = try {
+            context.senderTagsDB.getAll()
+                .filter { StarterRules.TAG_BLOCKED in it.tagList }
+                .map { it.number }
+        } catch (e: Exception) {
+            emptyList()
+        }
+        return BlockedNumbers.isBlocked(sender, recorded)
+    }
+
+    /**
+     * Every blocked number as one list: the app's record unioned with the
+     * system block list, format variants of the same number collapsed.
+     * This is what the blocked-numbers screen shows, so no block — from
+     * whichever side it was placed — is ever invisible there.
+     */
+    fun blockedNumbers(context: Context): List<String> {
+        val numbers = ArrayList<String>()
+        fun add(number: String) {
+            if (number.isNotBlank() && !BlockedNumbers.isBlocked(number, numbers)) {
+                numbers += number
+            }
+        }
+
+        try {
+            context.senderTagsDB.getAll()
+                .filter { StarterRules.TAG_BLOCKED in it.tagList }
+                .forEach { add(it.number) }
+        } catch (e: Exception) {
+            // The system list below still answers.
+        }
+        try {
+            context.getBlockedNumbers().forEach { add(it.number) }
+        } catch (e: Exception) {
+            // The app record above still answers.
+        }
+        return numbers.sorted()
+    }
+
+    /**
+     * The one permanent block, used by every Block action in the app:
+     * record the number in the app's blocked record and in the system
+     * BlockedNumberProvider. Filing the current thread to Spam is the
+     * caller's job (it owns the thread id).
+     */
+    fun blockNumber(context: Context, number: String) {
+        runCatching { assignTag(context, number, StarterRules.TAG_BLOCKED) }
+        runCatching { context.addBlockedNumber(number) }
+    }
+
+    /**
+     * Lift a permanent block from both records. Future messages from the
+     * number are judged normally again; threads already in Spam stay
+     * there until Ben moves them or a filing pass re-files them.
+     */
+    fun unblockNumber(context: Context, number: String) {
+        try {
+            context.senderTagsDB.getAll()
+                .filter { BlockedNumbers.numbersMatch(it.number, number) }
+                .forEach { removeTag(context, it.number, StarterRules.TAG_BLOCKED) }
+        } catch (e: Exception) {
+            // Fall through: the system entry is still lifted below.
+        }
+        runCatching { context.deleteBlockedNumber(number) }
+    }
+
+    // endregion
 }

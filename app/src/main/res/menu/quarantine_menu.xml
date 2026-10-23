@@ -13,4 +13,9 @@
         android:showAsAction="never"
         android:title="@string/file_existing_conversations"
         app:showAsAction="never" />
+    <item
+        android:id="@+id/blocked_numbers"
+        android:showAsAction="never"
+        android:title="@string/blocked_numbers"
+        app:showAsAction="never" />
 </menu>

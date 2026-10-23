@@ -2,7 +2,6 @@ package org.fossify.messages.adapters
 
 import android.view.Menu
 import org.fossify.commons.dialogs.ConfirmationDialog
-import org.fossify.commons.extensions.addBlockedNumber
 import org.fossify.commons.extensions.notificationManager
 import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.commons.views.MyRecyclerView
@@ -10,6 +9,7 @@ import org.fossify.messages.R
 import org.fossify.messages.activities.SimpleActivity
 import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.extensions.deleteConversation
+import org.fossify.messages.helpers.FilterEvaluator
 import org.fossify.messages.helpers.refreshConversations
 import org.fossify.messages.models.Conversation
 import org.fossify.messages.models.Mailbox
@@ -95,8 +95,10 @@ class QuarantinedConversationsAdapter(
     }
 
     /**
-     * Block: the number goes into the system BlockedNumberProvider (the hard
-     * pre-check at receive time) and the conversation moves to Spam.
+     * Block: the permanent, number-level block — the number is recorded in
+     * the app's blocked record and the system BlockedNumberProvider (see
+     * [FilterEvaluator.blockNumber]), and the conversation moves to Spam.
+     * The block survives deletion of this conversation.
      */
     private fun blockSenders() {
         if (selectedKeys.isEmpty()) {
@@ -105,7 +107,7 @@ class QuarantinedConversationsAdapter(
 
         val selected = getSelectedItems()
         selected.forEach {
-            activity.addBlockedNumber(it.phoneNumber)
+            FilterEvaluator.blockNumber(activity, it.phoneNumber)
             activity.conversationsDB.updateMailboxManuallyFiled(it.threadId, Mailbox.SPAM)
         }
 

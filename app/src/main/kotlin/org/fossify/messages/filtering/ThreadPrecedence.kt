@@ -10,9 +10,12 @@ import org.fossify.messages.models.Mailbox
  * share exactly this behaviour:
  *
  *  0. A sender Ben blocked files to Spam — always, contacts included.
- *     (On the receive path such senders never reach evaluation — the system
- *     BlockedNumberProvider drops them first — but the rule is part of the
- *     contract, so it lives here and is tested here.)
+ *     Blocking is a property of the number and permanent (Ben's
+ *     requirement, 2026-10-22): the blocked fact is the app's own record
+ *     (the `blocked` sender tag) or the system BlockedNumberProvider, and
+ *     it is genuinely evaluated on every path — blocked messages are
+ *     stored and filed to Spam, never silently dropped, so an unblock can
+ *     always be audited against what actually arrived.
  *  1. A conversation in the Locker keeps the Locker, and one Ben filed by
  *     hand keeps his filing: his hand outranks the address book below.
  *  2. Contacts are settled before content rules: a person contact's home
