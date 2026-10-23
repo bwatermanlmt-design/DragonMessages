@@ -29,6 +29,7 @@
         app:layout_behavior="@string/appbar_scrolling_view_behavior">
 
         <LinearLayout
+            android:id="@+id/folder_rows_container"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
@@ -439,6 +440,15 @@
                     android:textSize="@dimen/bigger_text_size" />
 
             </LinearLayout>
+
+            <!-- Ben's own folders (revision 7) are inflated here at
+                 runtime, one item_folder_row per folder, in creation
+                 order, after the five system folders. -->
+            <LinearLayout
+                android:id="@+id/custom_folders_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
 
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>

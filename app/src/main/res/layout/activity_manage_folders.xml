@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/manage_folders_coordinator"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <org.fossify.commons.views.MyAppBarLayout
+        android:id="@+id/manage_folders_appbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/manage_folders_toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/color_primary"
+            app:title="@string/manage_folders"
+            app:titleTextAppearance="@style/AppTheme.ActionBar.TitleTextStyle" />
+
+    </org.fossify.commons.views.MyAppBarLayout>
+
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/manage_folders_scrollview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true"
+        android:scrollbars="none"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingTop="@dimen/small_margin"
+            android:paddingBottom="@dimen/activity_margin">
+
+            <org.fossify.commons.views.MyTextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:alpha="0.6"
+                android:paddingStart="@dimen/activity_margin"
+                android:paddingEnd="@dimen/activity_margin"
+                android:paddingBottom="@dimen/small_margin"
+                android:text="@string/folders"
+                android:textSize="@dimen/normal_text_size" />
+
+            <org.fossify.commons.views.MyTextView
+                android:id="@+id/no_folders_placeholder"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="@dimen/activity_margin"
+                android:paddingEnd="@dimen/activity_margin"
+                android:paddingBottom="@dimen/small_margin"
+                android:text="@string/no_folders_yet"
+                android:textSize="@dimen/bigger_text_size"
+                android:textStyle="italic"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/folders_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <org.fossify.commons.views.MyTextView
+                android:id="@+id/new_folder_button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/activity_margin"
+                android:layout_marginTop="@dimen/small_margin"
+                android:background="@drawable/ripple_all_corners"
+                android:padding="@dimen/activity_margin"
+                android:text="@string/new_folder"
+                android:textSize="@dimen/bigger_text_size" />
+
+            <org.fossify.commons.views.MyTextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:alpha="0.6"
+                android:paddingStart="@dimen/activity_margin"
+                android:paddingTop="@dimen/medium_margin"
+                android:paddingEnd="@dimen/activity_margin"
+                android:paddingBottom="@dimen/small_margin"
+                android:text="@string/label_mappings"
+                android:textSize="@dimen/normal_text_size" />
+
+            <org.fossify.commons.views.MyTextView
+                android:id="@+id/no_mappings_placeholder"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="@dimen/activity_margin"
+                android:paddingEnd="@dimen/activity_margin"
+                android:paddingBottom="@dimen/small_margin"
+                android:text="@string/no_label_mappings"
+                android:textSize="@dimen/bigger_text_size"
+                android:textStyle="italic"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/mappings_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <org.fossify.commons.views.MyTextView
+                android:id="@+id/add_mapping_button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/activity_margin"
+                android:layout_marginTop="@dimen/small_margin"
+                android:background="@drawable/ripple_all_corners"
+                android:padding="@dimen/activity_margin"
+                android:text="@string/add_label_mapping"
+                android:textSize="@dimen/bigger_text_size" />
+
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

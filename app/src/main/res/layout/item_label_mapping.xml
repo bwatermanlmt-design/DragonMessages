@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One label → folder mapping row on the Manage folders screen. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="?attr/selectableItemBackground"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="@dimen/activity_margin"
+    android:paddingTop="12dp"
+    android:paddingEnd="@dimen/activity_margin"
+    android:paddingBottom="12dp">
+
+    <org.fossify.commons.views.MyTextView
+        android:id="@+id/mapping_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="@dimen/bigger_text_size" />
+
+</LinearLayout>

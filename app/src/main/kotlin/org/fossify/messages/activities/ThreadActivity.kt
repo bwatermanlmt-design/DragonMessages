@@ -111,6 +111,7 @@ import org.fossify.messages.dialogs.GroupMessageSendDialog
 import org.fossify.messages.dialogs.InvalidNumberDialog
 import org.fossify.messages.dialogs.RenameConversationDialog
 import org.fossify.messages.dialogs.ScheduleMessageDialog
+import org.fossify.messages.dialogs.SendToFolderDialog
 import org.fossify.messages.extensions.clearExpiredScheduledMessages
 import org.fossify.messages.extensions.config
 import org.fossify.messages.extensions.conversationsDB
@@ -375,6 +376,7 @@ class ThreadActivity : SimpleActivity() {
                 participants.size == 1 && !isSpecialNumber() && !isRecycleBin
             findItem(R.id.manage_people).isVisible = !isSpecialNumber() && !isRecycleBin
             findItem(R.id.mark_as_unread).isVisible = threadItems.isNotEmpty() && !isRecycleBin
+            findItem(R.id.send_to_folder).isVisible = conversation != null && !isRecycleBin
 
             // allow saving number in cases when we don't have it stored yet
             findItem(R.id.add_number_to_contact).isVisible =
@@ -451,6 +453,7 @@ class ThreadActivity : SimpleActivity() {
             R.id.mark_as_unread -> markAsUnread()
             R.id.silence_notifications -> toggleConversationSilence()
             R.id.silence_number -> toggleNumberSilence()
+            R.id.send_to_folder -> sendToFolder()
             else -> return false
         }
 
@@ -1202,6 +1205,21 @@ class ThreadActivity : SimpleActivity() {
         }
 
         return userPreferredSimIdx ?: senderPreferredSimIdx ?: systemPreferredSimIdx ?: 0
+    }
+
+    /**
+     * Send to folder (revision 7): file this conversation by hand to any
+     * folder. The Locker is not offered here — no move-to-Locker action
+     * existed in the thread view, and Send to folder adds no new Locker
+     * routes. The thread closes afterwards, like Block: it lives
+     * somewhere else now.
+     */
+    private fun sendToFolder() {
+        val conv = conversation ?: return
+        SendToFolderDialog(this, listOf(conv), includeLocker = false) {
+            refreshConversations()
+            finish()
+        }
     }
 
     private fun blockNumber() {

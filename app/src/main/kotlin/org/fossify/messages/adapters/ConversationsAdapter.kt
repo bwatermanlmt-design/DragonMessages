@@ -13,6 +13,7 @@ import org.fossify.commons.views.MyRecyclerView
 import org.fossify.messages.R
 import org.fossify.messages.activities.SimpleActivity
 import org.fossify.messages.dialogs.RenameConversationDialog
+import org.fossify.messages.dialogs.SendToFolderDialog
 import org.fossify.messages.extensions.config
 import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.extensions.deleteConversation
@@ -84,6 +85,7 @@ class ConversationsAdapter(
 
             R.id.cab_mark_as_read -> markAsRead()
             R.id.cab_mark_as_unread -> markAsUnread()
+            R.id.cab_send_to_folder -> sendToFolder()
             R.id.cab_move_to_locker -> moveToMailbox(Mailbox.LOCKER)
             R.id.cab_move_out_of_locker -> moveToMailbox(Mailbox.CONTACTS)
             R.id.cab_pin_conversation -> pinConversation(true)
@@ -142,6 +144,23 @@ class ConversationsAdapter(
     }
 
     /**
+     * Send to folder (revision 7): the folder picker over the selected
+     * conversations. The Locker is offered here because this list already
+     * had a move-to-Locker action; the dialog files through the one
+     * manual placement, so 1:1 senders are recorded too.
+     */
+    private fun sendToFolder() {
+        val selectedConversations = getSelectedItems()
+        if (selectedConversations.isEmpty()) {
+            return
+        }
+
+        SendToFolderDialog(activity, selectedConversations, includeLocker = true) {
+            refreshConversationsAndFinishActMode()
+        }
+    }
+
+    /**
      * A hand move between mailboxes: sets the mailbox and marks the
      * conversation manually filed, so automated filing never overrides it.
      * The moved conversations leave this list, as the target is never the
@@ -156,7 +175,7 @@ class ConversationsAdapter(
             currentList.filter { selectedKeys.contains(it.hashCode()) } as ArrayList<Conversation>
         ensureBackgroundThread {
             conversationsToMove.forEach {
-                activity.conversationsDB.updateMailboxManuallyFiled(it.threadId, targetMailbox)
+                FilterEvaluator.applyManualFiling(activity, it, targetMailbox)
             }
 
             val newList = try {

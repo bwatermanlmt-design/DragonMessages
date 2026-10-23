@@ -1,23 +1,34 @@
 package org.fossify.messages.activities
 
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.os.Build
 import android.os.Bundle
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
+import org.fossify.commons.dialogs.ConfirmationDialog
+import org.fossify.commons.dialogs.RadioGroupDialog
+import org.fossify.commons.extensions.adjustAlpha
 import org.fossify.commons.extensions.beVisibleIf
 import org.fossify.commons.extensions.toast
 import org.fossify.commons.extensions.updateTextColors
 import org.fossify.commons.extensions.viewBinding
+import org.fossify.commons.models.RadioItem
 import org.fossify.commons.views.MyTextView
 import org.fossify.commons.helpers.NavigationIcon
 import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.messages.R
 import org.fossify.messages.databinding.ActivityFolderViewBinding
+import org.fossify.messages.databinding.ItemFolderRowBinding
+import org.fossify.messages.dialogs.CreateFolderDialog
+import org.fossify.messages.dialogs.RenameFolderDialog
 import org.fossify.messages.extensions.config
 import org.fossify.messages.extensions.conversationsDB
+import org.fossify.messages.extensions.foldersDB
+import org.fossify.messages.helpers.FolderManager
 import org.fossify.messages.helpers.MAILBOX_FILTER
+import org.fossify.messages.models.Folder
 import org.fossify.messages.models.Mailbox
 
 /**
@@ -48,6 +59,34 @@ class FolderViewActivity : SimpleActivity() {
         binding.mailboxQuarantineHolder.setOnLongClickListener { toggleFolderMute(Mailbox.QUARANTINE) }
         binding.mailboxSpamHolder.setOnLongClickListener { toggleFolderMute(Mailbox.SPAM) }
         binding.mailboxLockerHolder.setOnLongClickListener { toggleFolderMute(Mailbox.LOCKER) }
+
+        setupOptionsMenu()
+    }
+
+    private fun setupOptionsMenu() {
+        binding.folderToolbar.inflateMenu(R.menu.folder_view_menu)
+        binding.folderToolbar.setOnMenuItemClickListener { menuItem ->
+            when (menuItem.itemId) {
+                R.id.new_folder -> {
+                    CreateFolderDialog(this) {
+                        refreshCustomFolders()
+                    }
+                    true
+                }
+
+                R.id.manage_folders -> {
+                    startActivity(Intent(this, ManageFoldersActivity::class.java))
+                    true
+                }
+
+                R.id.macros -> {
+                    startActivity(Intent(this, MacrosActivity::class.java))
+                    true
+                }
+
+                else -> false
+            }
+        }
     }
 
     private fun toggleFolderMute(mailbox: String): Boolean {
@@ -89,6 +128,121 @@ class FolderViewActivity : SimpleActivity() {
         updateTextColors(binding.folderCoordinator)
         updateFolderNames()
         loadCounts()
+        refreshCustomFolders()
+    }
+
+    /**
+     * Ben's own folders (revision 7), after the system five in creation
+     * order, in the same row dress: colour chip from the folder's stored
+     * colour, name (with the silenced suffix when muted), count pill, and
+     * an unread pill like the other contact-ish folders. A long press
+     * offers the silence toggle alongside Rename and Delete.
+     */
+    private fun refreshCustomFolders() {
+        ensureBackgroundThread {
+            val folders = FolderManager.allFolders(this)
+            val labelsByMailbox = try {
+                foldersDB.getAllLabelMappings().groupBy({ it.mailbox }, { it.label })
+            } catch (e: Exception) {
+                emptyMap()
+            }
+            val counts = HashMap<String, Int>()
+            val unreadCounts = HashMap<String, Int>()
+            folders.forEach { folder ->
+                val mailbox = Mailbox.customMailboxId(folder.id)
+                counts[mailbox] = try {
+                    conversationsDB.getCountByMailbox(mailbox)
+                } catch (e: Exception) {
+                    0
+                }
+                unreadCounts[mailbox] = try {
+                    conversationsDB.getUnreadCountByMailbox(mailbox)
+                } catch (e: Exception) {
+                    0
+                }
+            }
+
+            runOnUiThread {
+                showCustomFolders(folders, labelsByMailbox, counts, unreadCounts)
+            }
+        }
+    }
+
+    private fun showCustomFolders(
+        folders: List<Folder>,
+        labelsByMailbox: Map<String, List<String>>,
+        counts: Map<String, Int>,
+        unreadCounts: Map<String, Int>
+    ) {
+        val container = binding.customFoldersContainer
+        container.removeAllViews()
+        val muted = config.mutedMailboxes
+
+        folders.forEach { folder ->
+            val mailbox = Mailbox.customMailboxId(folder.id)
+            val row = ItemFolderRowBinding.inflate(layoutInflater, container, false)
+
+            row.folderRowIconHolder.backgroundTintList = ColorStateList.valueOf(folder.color)
+            row.folderRowName.text = folder.name +
+                if (mailbox in muted) getString(R.string.folder_silenced_suffix) else ""
+
+            val labels = labelsByMailbox[mailbox].orEmpty()
+            row.folderRowSubtitle.text = if (labels.isEmpty()) {
+                getString(R.string.custom_folder_subtitle)
+            } else {
+                getString(R.string.folder_label_subtitle, labels.joinToString(", "))
+            }
+
+            row.folderRowCount.backgroundTintList =
+                ColorStateList.valueOf(folder.color.adjustAlpha(WASH_ALPHA))
+            row.folderRowCount.text = (counts[mailbox] ?: 0).toString()
+
+            row.folderRowUnread.backgroundTintList = ColorStateList.valueOf(folder.color)
+            updateUnreadPill(row.folderRowUnread, unreadCounts[mailbox] ?: 0)
+
+            row.root.setOnClickListener { openMailbox(mailbox) }
+            row.root.setOnLongClickListener {
+                showFolderOptions(folder, mailbox)
+                true
+            }
+            container.addView(row.root)
+        }
+        updateTextColors(container)
+    }
+
+    private fun showFolderOptions(folder: Folder, mailbox: String) {
+        val items = arrayListOf(
+            RadioItem(
+                0,
+                getString(if (mailbox in config.mutedMailboxes) R.string.unsilence_folder else R.string.silence_folder)
+            ),
+            RadioItem(1, getString(R.string.rename_folder)),
+            RadioItem(2, getString(R.string.delete_folder))
+        )
+        RadioGroupDialog(this, items) { selected ->
+            when (selected as Int) {
+                0 -> {
+                    toggleFolderMute(mailbox)
+                    refreshCustomFolders()
+                }
+
+                1 -> RenameFolderDialog(this, folder) {
+                    refreshCustomFolders()
+                }
+
+                2 -> ConfirmationDialog(
+                    this,
+                    getString(R.string.delete_folder_confirmation, folder.name)
+                ) {
+                    ensureBackgroundThread {
+                        FolderManager.deleteFolder(this@FolderViewActivity, folder)
+                        runOnUiThread {
+                            refreshCustomFolders()
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun loadCounts() {
@@ -184,5 +338,10 @@ class FolderViewActivity : SimpleActivity() {
             .build()
 
         prompt.authenticate(promptInfo)
+    }
+
+    private companion object {
+        /** Alpha of a folder colour in its count pill's wash (the rev6 pills use 0x26). */
+        const val WASH_ALPHA = 0.15f
     }
 }

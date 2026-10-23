@@ -63,6 +63,7 @@ import org.fossify.messages.extensions.getConversations
 import org.fossify.messages.extensions.getMessages
 import org.fossify.messages.extensions.insertOrUpdateConversation
 import org.fossify.messages.extensions.messagesDB
+import org.fossify.messages.helpers.FolderManager
 import org.fossify.messages.helpers.MAILBOX_FILTER
 import org.fossify.messages.helpers.SEARCHED_MESSAGE_ID
 import org.fossify.messages.helpers.THREAD_ID
@@ -96,7 +97,8 @@ class MainActivity : SimpleActivity() {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
         appLaunched(BuildConfig.APPLICATION_ID)
-        mailboxFilter = intent.getStringExtra(MAILBOX_FILTER)?.takeIf { it in Mailbox.ALL }
+        mailboxFilter = intent.getStringExtra(MAILBOX_FILTER)
+            ?.takeIf { it in Mailbox.ALL || Mailbox.isCustomMailbox(it) }
         setupOptionsMenu()
         refreshMenuItems()
         setupMailboxTitle()
@@ -199,7 +201,17 @@ class MainActivity : SimpleActivity() {
     /** A filtered instance is titled after its mailbox, like a mail folder. */
     private fun setupMailboxTitle() {
         val filter = mailboxFilter ?: return
-        binding.mainMenu.requireToolbar().title = getString(Mailbox.displayNameRes(filter))
+        if (Mailbox.isCustomMailbox(filter)) {
+            // A custom folder's title is its own name, read off the UI thread.
+            ensureBackgroundThread {
+                val name = FolderManager.displayName(this, filter)
+                runOnUiThread {
+                    binding.mainMenu.requireToolbar().title = name
+                }
+            }
+        } else {
+            binding.mainMenu.requireToolbar().title = getString(Mailbox.displayNameRes(filter))
+        }
     }
 
     private fun refreshMenuItems() {

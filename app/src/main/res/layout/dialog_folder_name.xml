@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Name field for folder creation / renaming, plus (creation only) a
+     row that picks an address-book label to map onto the new folder. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/dialog_holder"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingTop="@dimen/activity_margin">
+
+    <org.fossify.commons.views.MyTextInputLayout
+        android:id="@+id/folder_name_hint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/activity_margin"
+        android:layout_marginEnd="@dimen/activity_margin"
+        android:hint="@string/folder_name_hint">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/folder_name_edittext"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textCapWords"
+            android:textCursorDrawable="@null"
+            android:textSize="@dimen/bigger_text_size" />
+
+    </org.fossify.commons.views.MyTextInputLayout>
+
+    <org.fossify.commons.views.MyTextView
+        android:id="@+id/folder_label_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/activity_margin"
+        android:layout_marginTop="@dimen/medium_margin"
+        android:layout_marginEnd="@dimen/activity_margin"
+        android:alpha="0.65"
+        android:text="@string/file_labelled_contacts_here"
+        android:textSize="@dimen/normal_text_size" />
+
+    <org.fossify.commons.views.MyTextView
+        android:id="@+id/folder_label_value"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/selectableItemBackground"
+        android:layout_marginStart="@dimen/small_margin"
+        android:layout_marginEnd="@dimen/small_margin"
+        android:paddingStart="@dimen/small_margin"
+        android:paddingTop="@dimen/small_margin"
+        android:paddingEnd="@dimen/small_margin"
+        android:paddingBottom="@dimen/small_margin"
+        android:text="@string/no_label"
+        android:textSize="@dimen/bigger_text_size" />
+
+</LinearLayout>

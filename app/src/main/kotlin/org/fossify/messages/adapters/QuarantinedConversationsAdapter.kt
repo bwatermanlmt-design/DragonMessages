@@ -7,6 +7,7 @@ import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.commons.views.MyRecyclerView
 import org.fossify.messages.R
 import org.fossify.messages.activities.SimpleActivity
+import org.fossify.messages.dialogs.SendToFolderDialog
 import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.extensions.deleteConversation
 import org.fossify.messages.helpers.FilterEvaluator
@@ -35,7 +36,30 @@ class QuarantinedConversationsAdapter(
             R.id.cab_delete -> askConfirmDelete()
             R.id.cab_release -> releaseConversations()
             R.id.cab_block -> askConfirmBlockSenders()
+            R.id.cab_send_to_folder -> sendToFolder()
             R.id.cab_select_all -> selectAll()
+        }
+    }
+
+    /**
+     * Send to folder (revision 7): the folder picker over the selected
+     * conversations — this is the "keep just this one" tool: pull a
+     * single thread out of Not in Contacts into My Contacts (or any
+     * folder) while the rest stays disposable. No Locker route here: this
+     * screen never had one. The sender is recorded with the placement,
+     * like every manual filing.
+     */
+    private fun sendToFolder() {
+        val selectedConversations = getSelectedItems()
+        if (selectedConversations.isEmpty()) {
+            return
+        }
+
+        SendToFolderDialog(activity, selectedConversations, includeLocker = false) {
+            activity.runOnUiThread {
+                finishActMode()
+                refreshConversations()
+            }
         }
     }
 
@@ -67,7 +91,12 @@ class QuarantinedConversationsAdapter(
         removeConversationsFromList(conversationsToRemove)
     }
 
-    /** Release: the conversation moves to My Contacts and leaves this list. */
+    /**
+     * Release: the conversation moves to My Contacts and leaves this
+     * list. Under the sender-level filing semantics (revision 7) the
+     * release records the sender too: releasing a thread says "this
+     * sender belongs in My Contacts", thread or no thread.
+     */
     private fun releaseConversations() {
         if (selectedKeys.isEmpty()) {
             return
@@ -76,7 +105,7 @@ class QuarantinedConversationsAdapter(
         ensureBackgroundThread {
             val conversationsToRelease = getSelectedItems()
             conversationsToRelease.forEach {
-                activity.conversationsDB.updateMailboxManuallyFiled(it.threadId, Mailbox.CONTACTS)
+                FilterEvaluator.applyManualFiling(activity, it, Mailbox.CONTACTS)
             }
 
             removeConversationsFromList(conversationsToRelease)
