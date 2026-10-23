@@ -37,6 +37,6 @@ data class FilterRule(
     // when Ben runs them by hand. (The rule action already names a mailbox
     // id as a plain string, so a macro can target any folder, system or
     // custom, with no second engine.)
-    @ColumnInfo(name = "is_macro") var isMacro: Boolean = false,
-    @ColumnInfo(name = "macro_automatic") var macroAutomatic: Boolean = false,
+    @ColumnInfo(name = "is_macro", defaultValue = "0") var isMacro: Boolean = false,
+    @ColumnInfo(name = "macro_automatic", defaultValue = "0") var macroAutomatic: Boolean = false,
 )
