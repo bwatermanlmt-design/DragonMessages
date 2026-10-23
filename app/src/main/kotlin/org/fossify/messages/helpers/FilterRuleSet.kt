@@ -27,6 +27,7 @@ data class FilterRuleDto(
     val priority: Int = 0,
     val senderExact: String? = null,
     val senderPattern: String? = null,
+    val senderContains: String? = null,
     val senderInContacts: Boolean? = null,
     val senderTag: String? = null,
     val keyword: String? = null,
@@ -34,6 +35,8 @@ data class FilterRuleDto(
     val senderClass: String? = null,
     val mailbox: String,
     val assignTag: String? = null,
+    val isMacro: Boolean = false,
+    val macroAutomatic: Boolean = false,
 )
 
 fun FilterRule.toDto(): FilterRuleDto {
@@ -43,13 +46,16 @@ fun FilterRule.toDto(): FilterRuleDto {
         priority = priority,
         senderExact = senderExact,
         senderPattern = senderPattern,
+        senderContains = senderContains,
         senderInContacts = senderInContacts,
         senderTag = senderTag,
         keyword = keyword,
         containsLink = containsLink,
         senderClass = senderClass,
         mailbox = mailbox,
-        assignTag = assignTag
+        assignTag = assignTag,
+        isMacro = isMacro,
+        macroAutomatic = macroAutomatic
     )
 }
 
@@ -60,13 +66,16 @@ fun FilterRuleDto.toEntity(): FilterRule {
         priority = priority,
         senderExact = senderExact,
         senderPattern = senderPattern,
+        senderContains = senderContains,
         senderInContacts = senderInContacts,
         senderTag = senderTag,
         keyword = keyword,
         containsLink = containsLink,
         senderClass = senderClass,
         mailbox = mailbox,
-        assignTag = assignTag
+        assignTag = assignTag,
+        isMacro = isMacro,
+        macroAutomatic = macroAutomatic
     )
 }
 

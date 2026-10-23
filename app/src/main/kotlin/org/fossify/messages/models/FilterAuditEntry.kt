@@ -24,6 +24,9 @@ data class FilterAuditEntry(
         /** Verdicts from the manual "File existing conversations" pass. */
         const val CHANNEL_RETRO = "retro"
 
+        /** Filings from an on-demand macro run (revision 7). */
+        const val CHANNEL_MACRO = "macro"
+
         /** Rule name recorded when no rule matched and the built-in default applied. */
         const val DEFAULT_RULE_NAME = "(default)"
 

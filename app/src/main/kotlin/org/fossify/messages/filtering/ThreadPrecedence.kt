@@ -18,10 +18,18 @@ import org.fossify.messages.models.Mailbox
  *     always be audited against what actually arrived.
  *  1. A conversation in the Locker keeps the Locker, and one Ben filed by
  *     hand keeps his filing: his hand outranks the address book below.
+ *     The hand has two reaches (revision 7): the thread-level filing
+ *     (the only kind a group thread can have) and the sender-level
+ *     filing record — when Ben files a 1:1 thread by hand, the sender
+ *     belongs wherever he put it, so the record decides the home of
+ *     every thread from that number, even one recreated after the
+ *     original was deleted. Nothing here depends on the sender being a
+ *     contact: a stranger filed into My Contacts by hand stays filed.
  *  2. Contacts are settled before content rules: a person contact's home
  *     is My Contacts, a business-labeled contact's home is Auth & Services,
  *     and no verdict — Spam, Quarantine, anything — can move a contact
- *     anywhere else.
+ *     anywhere else. A label Ben mapped to a folder replaces that home
+ *     (see [LabelHomes] for how the business label is treated).
  *  3. Answered threads already sitting in Not in Contacts are invisible
  *     to the filters (Ben's clarification, 2026-10-22): on an **engaged**
  *     thread (Ben has sent a message in it) whose home is Quarantine, no
@@ -52,8 +60,15 @@ object ThreadPrecedence {
         if (currentMailbox == Mailbox.LOCKER) return verdict.copy(mailbox = Mailbox.LOCKER)
         if (manuallyFiled && currentMailbox != null) return verdict.copy(mailbox = currentMailbox)
 
+        // Ben's hand at sender level: the sender was filed somewhere by
+        // hand, so that is where this thread belongs — a hand filing is
+        // never corrected by the service-class guard below or settled by
+        // the address book, and it needs no contact anywhere in sight.
+        facts.senderFiledMailbox?.let { return verdict.copy(mailbox = it) }
+
         if (facts.senderInContacts) {
-            val home = if (facts.businessLabeled) Mailbox.AUTH else Mailbox.CONTACTS
+            val home = facts.labelHome
+                ?: if (facts.businessLabeled) Mailbox.AUTH else Mailbox.CONTACTS
             return verdict.copy(mailbox = home)
         }
 

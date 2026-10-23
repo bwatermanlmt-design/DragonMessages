@@ -33,6 +33,15 @@ interface ConversationsDao {
     @Query("UPDATE conversations SET mailbox = :mailbox, manually_filed = 1 WHERE thread_id = :threadId")
     fun updateMailboxManuallyFiled(threadId: Long, mailbox: String)
 
+    /**
+     * A move made by the machinery, not by Ben's hand — a deleted folder's
+     * threads falling back to their natural home: change the mailbox and
+     * clear the hand-filed mark, so the placement reads as the natural
+     * filing it now is.
+     */
+    @Query("UPDATE conversations SET mailbox = :mailbox, manually_filed = 0 WHERE thread_id = :threadId")
+    fun updateMailboxNatural(threadId: Long, mailbox: String)
+
     /** Ben's per-conversation mute: suppresses notifications, nothing else. */
     @Query("UPDATE conversations SET muted = :muted WHERE thread_id = :threadId")
     fun updateMuted(threadId: Long, muted: Boolean)

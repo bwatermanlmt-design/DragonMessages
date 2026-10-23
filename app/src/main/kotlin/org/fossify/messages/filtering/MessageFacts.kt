@@ -17,6 +17,30 @@ data class MessageFacts(
      * [senderInContacts] is true.
      */
     val businessLabeled: Boolean = false,
+    /**
+     * The sender's display name (the address-book name for a contact, the
+     * conversation title for a stored thread), matched by the
+     * sender-contains rule condition alongside the raw address.
+     */
+    val senderName: String = "",
+    /**
+     * The mailbox Ben filed this sender to by hand, from the sender-level
+     * filing record (revision 7): a manual placement belongs to the
+     * sender, so it decides the home of every thread from this number —
+     * present, future, and recreated after deletion — until he moves the
+     * sender again. Null when the sender has no such record. Consulted by
+     * [ThreadPrecedence] at the manual tier, above the address book.
+     */
+    val senderFiledMailbox: String? = null,
+    /**
+     * The contact's label-mapped home (revision 7): the folder an
+     * address-book label mapping assigns to this sender, resolved from
+     * the sender's labels by [LabelHomes]. Null when no mapped label
+     * applies; [ThreadPrecedence] then falls back to the ordinary
+     * contact homes (Auth & Services for businesses, My Contacts for
+     * people). Only meaningful when [senderInContacts] is true.
+     */
+    val labelHome: String? = null,
 )
 
 /** The outcome of evaluating the rule set against a message. */

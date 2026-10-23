@@ -115,10 +115,13 @@ object RetroFiler {
         // left alone. This is decided here rather than in skipReason()
         // because the address book outranks the ignore — a contact is
         // still brought home by the evaluation below — and skipReason()
-        // has no facts to consult.
+        // has no facts to consult. A sender-level hand filing (revision
+        // 7) outranks the ignore the same way: if Ben filed this sender
+        // somewhere, the scan takes the thread home below.
         if (conversation.engaged &&
             conversation.currentMailbox == Mailbox.QUARANTINE &&
-            !conversation.facts.senderInContacts
+            !conversation.facts.senderInContacts &&
+            conversation.facts.senderFiledMailbox == null
         ) {
             return Decision.Skip(SkipReason.ENGAGED_IN_QUARANTINE)
         }

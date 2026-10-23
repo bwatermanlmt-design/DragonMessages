@@ -44,6 +44,11 @@ object RuleEngine {
         rule.senderPattern?.let {
             if (!PhoneNumbers.matchesPattern(it, facts.sender)) return false
         }
+        rule.senderContains?.let { needle ->
+            val inNumber = facts.sender.contains(needle, ignoreCase = true)
+            val inName = facts.senderName.contains(needle, ignoreCase = true)
+            if (!inNumber && !inName) return false
+        }
         rule.senderInContacts?.let {
             if (it != facts.senderInContacts) return false
         }

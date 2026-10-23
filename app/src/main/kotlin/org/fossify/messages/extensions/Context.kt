@@ -65,6 +65,7 @@ import org.fossify.messages.interfaces.ConversationsDao
 import org.fossify.messages.interfaces.DraftsDao
 import org.fossify.messages.interfaces.FilterAuditDao
 import org.fossify.messages.interfaces.FilterRulesDao
+import org.fossify.messages.interfaces.FoldersDao
 import org.fossify.messages.interfaces.MessageAttachmentsDao
 import org.fossify.messages.interfaces.MessagesDao
 import org.fossify.messages.interfaces.SenderTagsDao
@@ -111,6 +112,9 @@ val Context.filterAuditDB: FilterAuditDao
 
 val Context.senderTagsDB: SenderTagsDao
     get() = getMessagesDB().SenderTagsDao()
+
+val Context.foldersDB: FoldersDao
+    get() = getMessagesDB().FoldersDao()
 
 val Context.notificationHelper
     get() = NotificationHelper(this)

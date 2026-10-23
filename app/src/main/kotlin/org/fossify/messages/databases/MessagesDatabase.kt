@@ -14,6 +14,7 @@ import org.fossify.messages.interfaces.ConversationsDao
 import org.fossify.messages.interfaces.DraftsDao
 import org.fossify.messages.interfaces.FilterAuditDao
 import org.fossify.messages.interfaces.FilterRulesDao
+import org.fossify.messages.interfaces.FoldersDao
 import org.fossify.messages.interfaces.MessageAttachmentsDao
 import org.fossify.messages.interfaces.MessagesDao
 import org.fossify.messages.interfaces.SenderTagsDao
@@ -22,9 +23,12 @@ import org.fossify.messages.models.Conversation
 import org.fossify.messages.models.Draft
 import org.fossify.messages.models.FilterAuditEntry
 import org.fossify.messages.models.FilterRule
+import org.fossify.messages.models.Folder
+import org.fossify.messages.models.LabelMapping
 import org.fossify.messages.models.Message
 import org.fossify.messages.models.MessageAttachment
 import org.fossify.messages.models.RecycleBinMessage
+import org.fossify.messages.models.SenderFiling
 import org.fossify.messages.models.SenderTags
 
 @Database(
@@ -37,9 +41,12 @@ import org.fossify.messages.models.SenderTags
         Draft::class,
         FilterRule::class,
         FilterAuditEntry::class,
-        SenderTags::class
+        SenderTags::class,
+        Folder::class,
+        LabelMapping::class,
+        SenderFiling::class
     ],
-    version = 14
+    version = 15
 )
 @TypeConverters(Converters::class)
 abstract class MessagesDatabase : RoomDatabase() {
@@ -59,6 +66,8 @@ abstract class MessagesDatabase : RoomDatabase() {
     abstract fun FilterAuditDao(): FilterAuditDao
 
     abstract fun SenderTagsDao(): SenderTagsDao
+
+    abstract fun FoldersDao(): FoldersDao
 
     companion object {
         private var db: MessagesDatabase? = null
@@ -86,6 +95,7 @@ abstract class MessagesDatabase : RoomDatabase() {
                             .addMigrations(MIGRATION_11_12)
                             .addMigrations(MIGRATION_12_13)
                             .addMigrations(MIGRATION_13_14)
+                            .addMigrations(MIGRATION_14_15)
                             .build()
                     }
                 }
@@ -227,6 +237,33 @@ abstract class MessagesDatabase : RoomDatabase() {
                 // Per-conversation mute (Ben's hand-set silencing): suppresses
                 // notifications for the thread, changes nothing else.
                 db.execSQL("ALTER TABLE conversations ADD COLUMN `muted` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.apply {
+                    // Revision 7 filing subsystem: Ben's own folders, the
+                    // address-book label -> folder mappings, and the
+                    // sender-level filing record (a manual placement that
+                    // belongs to the sender, not the thread).
+                    execSQL(
+                        "CREATE TABLE IF NOT EXISTS `folders` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `color` INTEGER NOT NULL, `sort_order` INTEGER NOT NULL, PRIMARY KEY(`id`))"
+                    )
+                    execSQL(
+                        "CREATE TABLE IF NOT EXISTS `label_mappings` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `label` TEXT NOT NULL, `mailbox` TEXT NOT NULL, `sort_order` INTEGER NOT NULL)"
+                    )
+                    execSQL(
+                        "CREATE TABLE IF NOT EXISTS `sender_filings` (`number` TEXT NOT NULL, `mailbox` TEXT NOT NULL, PRIMARY KEY(`number`))"
+                    )
+
+                    // Macros ride the existing rules table: a sender-contains
+                    // condition, and the macro markers (a macro not marked
+                    // automatic never fires on its own).
+                    execSQL("ALTER TABLE filter_rules ADD COLUMN `sender_contains` TEXT")
+                    execSQL("ALTER TABLE filter_rules ADD COLUMN `is_macro` INTEGER NOT NULL DEFAULT 0")
+                    execSQL("ALTER TABLE filter_rules ADD COLUMN `macro_automatic` INTEGER NOT NULL DEFAULT 0")
+                }
             }
         }
     }

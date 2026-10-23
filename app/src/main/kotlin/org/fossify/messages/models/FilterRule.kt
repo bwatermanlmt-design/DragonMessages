@@ -20,6 +20,7 @@ data class FilterRule(
     // Conditions. All set conditions must match (logical AND).
     @ColumnInfo(name = "sender_exact") var senderExact: String? = null,
     @ColumnInfo(name = "sender_pattern") var senderPattern: String? = null,
+    @ColumnInfo(name = "sender_contains") var senderContains: String? = null,
     @ColumnInfo(name = "sender_in_contacts") var senderInContacts: Boolean? = null,
     @ColumnInfo(name = "sender_tag") var senderTag: String? = null,
     @ColumnInfo(name = "keyword") var keyword: String? = null,
@@ -29,4 +30,13 @@ data class FilterRule(
     // Action.
     @ColumnInfo(name = "mailbox") var mailbox: String,
     @ColumnInfo(name = "assign_tag") var assignTag: String? = null,
+
+    // Revision 7: a rule created through the macro editor is a macro — the
+    // same engine row with a friendlier face. Macros that are not marked
+    // automatic never fire on arrival or in the retro pass; they only run
+    // when Ben runs them by hand. (The rule action already names a mailbox
+    // id as a plain string, so a macro can target any folder, system or
+    // custom, with no second engine.)
+    @ColumnInfo(name = "is_macro") var isMacro: Boolean = false,
+    @ColumnInfo(name = "macro_automatic") var macroAutomatic: Boolean = false,
 )

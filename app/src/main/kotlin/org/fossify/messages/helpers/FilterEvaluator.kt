@@ -14,10 +14,14 @@ import org.fossify.commons.helpers.SimpleContactsHelper
 import org.fossify.messages.extensions.config
 import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.extensions.filterAuditDB
+import org.fossify.messages.extensions.foldersDB
 import org.fossify.messages.extensions.getMMSSender
+import org.fossify.messages.extensions.getNameFromAddress
 import org.fossify.messages.extensions.filterRulesDB
 import org.fossify.messages.extensions.senderTagsDB
 import org.fossify.messages.filtering.BlockedNumbers
+import org.fossify.messages.filtering.LabelHomeMapping
+import org.fossify.messages.filtering.LabelHomes
 import org.fossify.messages.filtering.MessageFacts
 import org.fossify.messages.filtering.RetroConversationFacts
 import org.fossify.messages.filtering.RetroFiler
@@ -28,6 +32,7 @@ import org.fossify.messages.filtering.ThreadPrecedence
 import org.fossify.messages.models.Conversation
 import org.fossify.messages.models.FilterAuditEntry
 import org.fossify.messages.models.Mailbox
+import org.fossify.messages.models.SenderFiling
 import org.fossify.messages.models.SenderTags
 
 /**
@@ -69,7 +74,7 @@ object FilterEvaluator {
     ): RuleVerdict {
         FilterRuleSeeder.seedIfNeeded(context)
 
-        val rules = context.filterRulesDB.getAllEnabled()
+        val rules = context.filterRulesDB.getAllEnabledForEvaluation()
         val facts = buildFacts(context, sender, body)
         val raw = RuleEngine.evaluate(rules, facts)
 
@@ -122,7 +127,7 @@ object FilterEvaluator {
         FilterRuleSeeder.seedIfNeeded(context)
 
         val facts = buildFacts(context, sender, body)
-        val verdict = RuleEngine.evaluate(context.filterRulesDB.getAllEnabled(), facts)
+        val verdict = RuleEngine.evaluate(context.filterRulesDB.getAllEnabledForEvaluation(), facts)
 
         verdict.assignTag?.let { tag ->
             runCatching { assignTag(context, sender, tag) }
@@ -134,13 +139,40 @@ object FilterEvaluator {
     /** Everything the engine and precedence need to know about one message. */
     private fun buildFacts(context: Context, sender: String, body: String): MessageFacts {
         val inContacts = isSenderInContacts(context, sender)
+        val labels = if (inContacts) contactLabels(context, sender) else emptyList()
+        val businessLabel = businessLabelOf(labels)
         return MessageFacts(
             sender = sender,
             body = body,
             senderInContacts = inContacts,
             senderTags = context.senderTagsDB.getForNumber(sender)?.tagList?.toSet() ?: emptySet(),
-            businessLabeled = inContacts && isBusinessLabeledContact(context, sender)
+            businessLabeled = businessLabel != null,
+            senderName = if (inContacts) {
+                runCatching { context.getNameFromAddress(sender, null) }.getOrDefault("")
+            } else {
+                ""
+            },
+            senderFiledMailbox = senderFiledMailbox(context, sender),
+            labelHome = if (inContacts) {
+                LabelHomes.homeFor(labels, businessLabel, labelMappings(context))
+            } else {
+                null
+            }
         )
+    }
+
+    /** The label mappings as the pure precedence layer sees them, in order. */
+    private fun labelMappings(context: Context): List<LabelHomeMapping> {
+        return try {
+            context.foldersDB.getAllLabelMappings().map { LabelHomeMapping(it.label, it.mailbox) }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /** Whether [sender] is in the address book (public wrapper for the macro screens). */
+    fun isInContacts(context: Context, sender: String): Boolean {
+        return isSenderInContacts(context, sender)
     }
 
     /**
@@ -254,7 +286,7 @@ object FilterEvaluator {
             facts = buildFacts(context, judgedSender, judgedBody)
         )
 
-        return when (val decision = RetroFiler.decide(retroFacts, context.filterRulesDB.getAllEnabled())) {
+        return when (val decision = RetroFiler.decide(retroFacts, context.filterRulesDB.getAllEnabledForEvaluation())) {
             is RetroFiler.Decision.File -> {
                 val verdict = decision.verdict
                 val auditRuleName = if (conversation.isGroupConversation) {
@@ -387,26 +419,65 @@ object FilterEvaluator {
     private val BUSINESS_GROUP_TITLES = setOf("Businesses", "Services")
 
     /**
-     * Whether the contact behind [sender] carries a business label: a
-     * Contacts group titled "Businesses" or "Services" (case-insensitive).
-     * The classification lives in the address book, not in the app. Group
-     * data comes from the system contacts provider; contacts from other
-     * sources expose none, and any failure answers false — when in doubt
-     * the sender is treated as a person, never pushed away from Contacts.
+     * Every address-book label (Contacts group title) the contact behind
+     * [sender] carries. The classification lives in the address book, not
+     * in the app. Group data comes from the system contacts provider;
+     * contacts from other sources expose none, and any failure answers an
+     * empty list — when in doubt the sender is treated as an unlabeled
+     * person, never pushed away from Contacts.
      */
-    private fun isBusinessLabeledContact(context: Context, sender: String): Boolean {
+    private fun contactLabels(context: Context, sender: String): List<String> {
         return try {
-            val contactId = lookupContactId(context, sender) ?: return false
+            val contactId = lookupContactId(context, sender) ?: return emptyList()
             val groupIds = groupIdsForContact(context, contactId)
             if (groupIds.isEmpty()) {
-                false
+                emptyList()
             } else {
-                groupTitles(context, groupIds).any { title ->
-                    BUSINESS_GROUP_TITLES.any { it.equals(title, ignoreCase = true) }
-                }
+                groupTitles(context, groupIds).toList()
             }
         } catch (e: Exception) {
-            false
+            emptyList()
+        }
+    }
+
+    /**
+     * The business label among [labels], if any: a Contacts group titled
+     * "Businesses" or "Services" (case-insensitive) marks the contact as a
+     * business, whose home is Auth & Services unless that very label is
+     * mapped to a folder of its own (see [LabelHomes]).
+     */
+    private fun businessLabelOf(labels: List<String>): String? {
+        return labels.firstOrNull { title ->
+            BUSINESS_GROUP_TITLES.any { it.equals(title, ignoreCase = true) }
+        }
+    }
+
+    /**
+     * Every address-book group title present on the device, for the label
+     * pickers (folder creation, mapping management). Read failure answers
+     * an empty list: no labels to offer, never a crash.
+     */
+    fun contactGroupTitles(context: Context): List<String> {
+        return try {
+            val titles = LinkedHashSet<String>()
+            context.contentResolver.query(
+                ContactsContract.Groups.CONTENT_URI,
+                arrayOf(ContactsContract.Groups.TITLE, ContactsContract.Groups.DELETED),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val title = cursor.getString(0)
+                    val deleted = cursor.getInt(1)
+                    if (title != null && title.isNotBlank() && deleted == 0) {
+                        titles += title
+                    }
+                }
+            }
+            titles.sorted()
+        } catch (e: Exception) {
+            emptyList()
         }
     }
 
@@ -479,6 +550,101 @@ object FilterEvaluator {
         val remaining = existing.tagList - tag
         context.senderTagsDB.insertOrUpdate(SenderTags.of(sender, remaining))
     }
+
+    // region sender-level filings (Ben's revision 7 refinement)
+
+    /**
+     * The mailbox Ben filed [sender] to by hand, from the sender-level
+     * filing record, or null when the sender has none. The record belongs
+     * to the number (matched format-tolerantly, like the blocked record),
+     * so it survives thread deletion and needs no contact anywhere: a
+     * stranger Ben filed into My Contacts is found here exactly like a
+     * filed friend.
+     */
+    fun senderFiledMailbox(context: Context, sender: String): String? {
+        return try {
+            context.foldersDB.getAllSenderFilings()
+                .firstOrNull { BlockedNumbers.numbersMatch(it.number, sender) }
+                ?.mailbox
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * The one manual placement, used by every Send to folder action and
+     * by macro runs: the thread moves (marked hand-filed, as manual moves
+     * have always been) and — for a 1:1 thread — the sender-level record
+     * is written, so the sender belongs wherever Ben put it from now on.
+     * Group threads have no single sender to record and stay thread-level
+     * only; the Locker is never recorded (it is a place threads are held,
+     * not a sender's home, and precedence never lets a filing outrank a
+     * thread sitting in it anyway).
+     */
+    fun applyManualFiling(context: Context, conversation: Conversation, targetMailbox: String) {
+        context.conversationsDB.updateMailboxManuallyFiled(conversation.threadId, targetMailbox)
+        recordSenderFiling(
+            context = context,
+            sender = conversation.phoneNumber,
+            isGroupConversation = conversation.isGroupConversation,
+            targetMailbox = targetMailbox
+        )
+    }
+
+    /** Write (or overwrite) the sender-level record for one manual placement. */
+    fun recordSenderFiling(context: Context, sender: String, isGroupConversation: Boolean, targetMailbox: String) {
+        if (isGroupConversation || targetMailbox == Mailbox.LOCKER || sender.isBlank()) {
+            return
+        }
+
+        try {
+            val dao = context.foldersDB
+            dao.getAllSenderFilings()
+                .filter { BlockedNumbers.numbersMatch(it.number, sender) }
+                .forEach { dao.deleteSenderFiling(it.number) }
+            dao.insertOrUpdateSenderFiling(SenderFiling(number = sender, mailbox = targetMailbox))
+        } catch (e: Exception) {
+            // The thread-level move already landed; the record is the
+            // sender's memory of it, and a later move rewrites it.
+        }
+    }
+
+    /**
+     * Where a conversation belongs with every hand placement taken away:
+     * the natural home the filing machinery computes for it — blocked
+     * senders to Spam, contacts to their label/business home, everyone
+     * else where the rules put them. Used when a folder is deleted and
+     * its threads fall back. Group threads have no single sender to judge
+     * and fall back to Not in Contacts.
+     */
+    fun naturalHome(context: Context, conversation: Conversation): String {
+        if (conversation.isGroupConversation) {
+            return Mailbox.QUARANTINE
+        }
+
+        val sender = conversation.phoneNumber
+        val facts = buildFacts(context, sender, conversation.snippet)
+            .copy(senderFiledMailbox = null)
+        val rules = context.filterRulesDB.getAllEnabledForEvaluation()
+        val resolved = ThreadPrecedence.resolve(
+            currentMailbox = null,
+            verdict = RuleEngine.evaluate(rules, facts),
+            facts = facts,
+            rules = rules,
+            engaged = hasOutgoingMessage(context, conversation.threadId),
+            manuallyFiled = false,
+            senderBlocked = isSenderBlocked(context, sender)
+        )
+        // The Locker is filled by hand only; no fallback lands there.
+        return if (resolved.mailbox == Mailbox.LOCKER) Mailbox.QUARANTINE else resolved.mailbox
+    }
+
+    /** The audit row a macro run leaves for one filed thread. */
+    fun recordMacroFiling(context: Context, macroName: String, sender: String, mailbox: String) {
+        recordAudit(context, sender, macroName, mailbox, FilterAuditEntry.CHANNEL_MACRO)
+    }
+
+    // endregion
 
     // region permanent, number-level blocking (Ben's requirement, 2026-10-22)
 
