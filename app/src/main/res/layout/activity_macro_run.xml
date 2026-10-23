@@ -34,7 +34,7 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:paddingTop="@dimen/small_margin"
-            android:paddingBottom="@dimen/huge_margin">
+            android:paddingBottom="96dp">
 
             <org.fossify.commons.views.MyTextView
                 android:id="@+id/macro_no_matches_placeholder"
