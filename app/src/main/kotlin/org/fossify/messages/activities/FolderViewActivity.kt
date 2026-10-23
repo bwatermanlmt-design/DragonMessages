@@ -6,9 +6,11 @@ import android.os.Bundle
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
+import org.fossify.commons.extensions.beVisibleIf
 import org.fossify.commons.extensions.toast
 import org.fossify.commons.extensions.updateTextColors
 import org.fossify.commons.extensions.viewBinding
+import org.fossify.commons.views.MyTextView
 import org.fossify.commons.helpers.NavigationIcon
 import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.messages.R
@@ -99,13 +101,37 @@ class FolderViewActivity : SimpleActivity() {
                 }
             }
 
+            // Unread pills only where unread means something: Spam is
+            // stored already-read by design, and the Locker row shows no
+            // activity detail — its count is all it ever reveals.
+            val unreadCounts = listOf(Mailbox.CONTACTS, Mailbox.AUTH, Mailbox.QUARANTINE)
+                .associateWith { mailbox ->
+                    try {
+                        conversationsDB.getUnreadCountByMailbox(mailbox)
+                    } catch (e: Exception) {
+                        0
+                    }
+                }
+
             runOnUiThread {
                 binding.mailboxContactsCount.text = counts[Mailbox.CONTACTS].toString()
                 binding.mailboxAuthCount.text = counts[Mailbox.AUTH].toString()
                 binding.mailboxQuarantineCount.text = counts[Mailbox.QUARANTINE].toString()
                 binding.mailboxSpamCount.text = counts[Mailbox.SPAM].toString()
                 binding.mailboxLockerCount.text = counts[Mailbox.LOCKER].toString()
+
+                updateUnreadPill(binding.mailboxContactsUnread, unreadCounts[Mailbox.CONTACTS] ?: 0)
+                updateUnreadPill(binding.mailboxAuthUnread, unreadCounts[Mailbox.AUTH] ?: 0)
+                updateUnreadPill(binding.mailboxQuarantineUnread, unreadCounts[Mailbox.QUARANTINE] ?: 0)
             }
+        }
+    }
+
+    private fun updateUnreadPill(view: MyTextView, unreadCount: Int) {
+        view.beVisibleIf(unreadCount > 0)
+        if (unreadCount > 0) {
+            view.text = unreadCount.toString()
+            view.contentDescription = getString(R.string.unread_badge, unreadCount)
         }
     }
 

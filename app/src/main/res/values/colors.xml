@@ -2,4 +2,20 @@
 <resources>
     <!-- Spawn Messages launcher background: the navy ground of the dragon artwork. -->
     <color name="ic_launcher_background">#1D314E</color>
+
+    <!-- Folder view accents: one colour identity per mailbox, in the
+         launcher navy's family. Each accent fills the row's icon chip
+         (white glyph on top) and its unread pill; the wash is the same
+         colour at low alpha behind the conversation count. Mid-dark tones
+         chosen to hold up on both light and dark themes. -->
+    <color name="mailbox_contacts_accent">#2F5D8A</color>
+    <color name="mailbox_contacts_wash">#262F5D8A</color>
+    <color name="mailbox_auth_accent">#5E4B9B</color>
+    <color name="mailbox_auth_wash">#265E4B9B</color>
+    <color name="mailbox_quarantine_accent">#9C6B1E</color>
+    <color name="mailbox_quarantine_wash">#269C6B1E</color>
+    <color name="mailbox_spam_accent">#B03A2E</color>
+    <color name="mailbox_spam_wash">#26B03A2E</color>
+    <color name="mailbox_locker_accent">#37474F</color>
+    <color name="mailbox_locker_wash">#2637474F</color>
 </resources>
