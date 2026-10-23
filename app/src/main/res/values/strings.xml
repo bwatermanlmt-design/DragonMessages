@@ -121,6 +121,10 @@
     <string name="move_out_of_locker">Move out of Locker</string>
     <string name="unlock_locker">Unlock the Locker</string>
     <string name="locker_subtitle">Locked — biometric or device credential required</string>
+    <!-- Visible folder-view action rows (revision 8) -->
+    <string name="new_folder_subtitle">Create a folder of your own</string>
+    <string name="manage_folders_subtitle">Rename or delete folders, map contact labels to them</string>
+    <string name="macros_subtitle">Saved searches that file conversations for you</string>
     <!-- Custom folders, label mappings, macros (revision 7) -->
     <string name="send_to_folder">Send to folder</string>
     <string name="new_folder">New folder</string>

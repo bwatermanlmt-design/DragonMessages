@@ -128,6 +128,8 @@ class SettingsActivity : SimpleActivity() {
         setupLanguage()
         setupManageBlockedNumbers()
         setupManageBlockedKeywords()
+        setupManageFolders()
+        setupMacros()
         setupChangeDateTimeFormat()
         setupFontSize()
         setupShowCharacterCounter()
@@ -328,6 +330,28 @@ class SettingsActivity : SimpleActivity() {
 
         settingsManageBlockedKeywordsHolder.setOnClickListener {
             Intent(this@SettingsActivity, ManageBlockedKeywordsActivity::class.java).apply {
+                startActivity(this)
+            }
+        }
+    }
+
+    private fun setupManageFolders() = binding.apply {
+        settingsManageFolders.text =
+            getString(R.string.manage_folders)
+
+        settingsManageFoldersHolder.setOnClickListener {
+            Intent(this@SettingsActivity, ManageFoldersActivity::class.java).apply {
+                startActivity(this)
+            }
+        }
+    }
+
+    private fun setupMacros() = binding.apply {
+        settingsMacros.text =
+            getString(R.string.macros)
+
+        settingsMacrosHolder.setOnClickListener {
+            Intent(this@SettingsActivity, MacrosActivity::class.java).apply {
                 startActivity(this)
             }
         }

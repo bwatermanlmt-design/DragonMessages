@@ -18,4 +18,12 @@
     <color name="mailbox_spam_wash">#26B03A2E</color>
     <color name="mailbox_locker_accent">#37474F</color>
     <color name="mailbox_locker_wash">#2637474F</color>
+
+    <!-- Folder-view action rows (revision 8): the visible New folder /
+         Manage folders / Macros entries under the folder list. Same
+         mid-dark family as the mailbox accents; chip fills only, the
+         rows carry no count or unread pills. -->
+    <color name="folder_action_new_accent">#1E7A74</color>
+    <color name="folder_action_manage_accent">#3B4A8C</color>
+    <color name="folder_action_macros_accent">#7A3B69</color>
 </resources>

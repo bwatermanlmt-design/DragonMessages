@@ -190,6 +190,8 @@ class MainActivity : SimpleActivity() {
                 R.id.show_recycle_bin -> launchRecycleBin()
                 R.id.show_archived -> launchArchivedConversations()
                 R.id.show_quarantine -> launchQuarantinedConversations()
+                R.id.manage_folders -> launchManageFolders()
+                R.id.macros -> launchMacros()
                 R.id.settings -> launchSettings()
                 R.id.about -> launchAbout()
                 else -> return@setOnMenuItemClickListener false
@@ -687,6 +689,16 @@ class MainActivity : SimpleActivity() {
     private fun launchQuarantinedConversations() {
         hideKeyboard()
         startActivity(Intent(applicationContext, QuarantinedConversationsActivity::class.java))
+    }
+
+    private fun launchManageFolders() {
+        hideKeyboard()
+        startActivity(Intent(applicationContext, ManageFoldersActivity::class.java))
+    }
+
+    private fun launchMacros() {
+        hideKeyboard()
+        startActivity(Intent(applicationContext, MacrosActivity::class.java))
     }
 
     private fun launchSettings() {

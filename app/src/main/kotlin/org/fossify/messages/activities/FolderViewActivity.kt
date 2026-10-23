@@ -61,6 +61,7 @@ class FolderViewActivity : SimpleActivity() {
         binding.mailboxLockerHolder.setOnLongClickListener { toggleFolderMute(Mailbox.LOCKER) }
 
         setupOptionsMenu()
+        setupActionRows()
     }
 
     private fun setupOptionsMenu() {
@@ -68,25 +69,50 @@ class FolderViewActivity : SimpleActivity() {
         binding.folderToolbar.setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId) {
                 R.id.new_folder -> {
-                    CreateFolderDialog(this) {
-                        refreshCustomFolders()
-                    }
+                    showCreateFolderDialog()
                     true
                 }
 
                 R.id.manage_folders -> {
-                    startActivity(Intent(this, ManageFoldersActivity::class.java))
+                    openFolderManager()
                     true
                 }
 
                 R.id.macros -> {
-                    startActivity(Intent(this, MacrosActivity::class.java))
+                    openMacros()
                     true
                 }
 
                 else -> false
             }
         }
+    }
+
+    /**
+     * The same three folder tools as visible rows in the list itself
+     * (revision 8): the overflow menu entries above stay, but the
+     * entrances no longer depend on opening a menu — a fresh install
+     * shows no custom-folder rows, and these rows are what tells Ben
+     * the features exist.
+     */
+    private fun setupActionRows() {
+        binding.actionNewFolderHolder.setOnClickListener { showCreateFolderDialog() }
+        binding.actionManageFoldersHolder.setOnClickListener { openFolderManager() }
+        binding.actionMacrosHolder.setOnClickListener { openMacros() }
+    }
+
+    private fun showCreateFolderDialog() {
+        CreateFolderDialog(this) {
+            refreshCustomFolders()
+        }
+    }
+
+    private fun openFolderManager() {
+        startActivity(Intent(this, ManageFoldersActivity::class.java))
+    }
+
+    private fun openMacros() {
+        startActivity(Intent(this, MacrosActivity::class.java))
     }
 
     private fun toggleFolderMute(mailbox: String): Boolean {
