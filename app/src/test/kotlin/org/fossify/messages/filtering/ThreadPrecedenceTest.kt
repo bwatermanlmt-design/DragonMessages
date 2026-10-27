@@ -7,7 +7,12 @@ import org.junit.Test
 
 class ThreadPrecedenceTest {
 
-    private val starterRules = StarterRules.defaultRules()
+    // Keyword rules the old starter pack used to ship; kept here as an
+    // explicit engine fixture now that the public pack is generic-only.
+    private val starterRules = StarterRules.defaultRules() + listOf(
+        FilterRule(name = "Test keyword to Spam", priority = 20, keyword = "Stop2End", mailbox = Mailbox.SPAM, assignTag = StarterRules.TAG_CAMPAIGNS),
+        FilterRule(name = "Test keyword to Quarantine", priority = 25, keyword = "Gerrit", mailbox = Mailbox.QUARANTINE)
+    )
 
     private fun facts(
         sender: String = "+14805550137",
