@@ -155,12 +155,11 @@ class MmsReceiver : MmsReceivedReceiver() {
             .forEach { attachment ->
                 val remaining = deadline - SystemClock.elapsedRealtime()
                 if (remaining <= 0) return@forEach
+                // Attachment.getUri() returns a Uri (parsed from its
+                // stored string); a malformed string still yields an
+                // empty Uri, which decodePart then fails open on.
                 val partUri = try {
-                    when (val uri = attachment.getUri()) {
-                        is Uri -> uri
-                        is String -> Uri.parse(uri)
-                        else -> null
-                    }
+                    attachment.getUri()
                 } catch (e: Exception) {
                     null
                 } ?: return@forEach

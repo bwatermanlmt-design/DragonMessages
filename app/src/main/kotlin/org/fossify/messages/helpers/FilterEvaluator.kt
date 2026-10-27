@@ -218,7 +218,6 @@ object FilterEvaluator {
                 contactLabels(context, number).any { it.equals(label, ignoreCase = true) }
         }
     }
-    }
 
     /**
      * Whether the thread contains a message Ben sent. The message store is
