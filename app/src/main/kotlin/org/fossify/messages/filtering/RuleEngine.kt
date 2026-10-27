@@ -1,7 +1,5 @@
 package org.fossify.messages.filtering
 
-import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import org.fossify.messages.models.FilterRule
 import org.fossify.messages.models.Mailbox
@@ -94,7 +92,7 @@ object RuleEngine {
         val raw = rule.keywordsJson
         if (!raw.isNullOrBlank()) {
             val parsed = try {
-                json.decodeFromString(ListSerializer(serializer<String>()), raw)
+                json.decodeFromString<List<String>>(raw)
             } catch (e: Exception) {
                 emptyList()
             }
@@ -105,7 +103,7 @@ object RuleEngine {
 
     /** Encode a keyword list for storage (the inverse of [effectiveKeywords]). */
     fun keywordsToJson(keywords: List<String>): String {
-        return json.encodeToString(ListSerializer(serializer<String>()), keywords)
+        return json.encodeToString(keywords)
     }
 
     /** Compact JSON instance for keyword lists (no pretty printing in the database). */
