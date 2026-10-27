@@ -21,6 +21,14 @@
     <!-- Kept (not stripped as upstream does): the Locker gate uses it. -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
+    <!-- Revision 9: ML Kit's transitive datatransport library declares
+         INTERNET and ACCESS_NETWORK_STATE, but this app must keep its
+         no-network design (nothing leaves the phone; on-device OCR needs
+         no network). Strip both from the merged manifest: library
+         telemetry attempts then fail silently instead of ever sending. -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+
     <queries>
         <package android:name="org.fossify.contacts.debug" />
         <package android:name="org.fossify.contacts" />
