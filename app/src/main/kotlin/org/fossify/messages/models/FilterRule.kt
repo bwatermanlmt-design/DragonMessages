@@ -17,13 +17,28 @@ data class FilterRule(
     @ColumnInfo(name = "enabled") var enabled: Boolean = true,
     @ColumnInfo(name = "priority") var priority: Int = 0,
 
-    // Conditions. All set conditions must match (logical AND).
+    // Conditions. All set conditions must match (logical AND) unless
+    // [conditionMode] is ANY, in which case any one set condition matching
+    // is enough. A rule with no set condition matches everything (catch-all),
+    // in either mode — that is the long-standing behavior, preserved.
     @ColumnInfo(name = "sender_exact") var senderExact: String? = null,
     @ColumnInfo(name = "sender_pattern") var senderPattern: String? = null,
     @ColumnInfo(name = "sender_contains") var senderContains: String? = null,
     @ColumnInfo(name = "sender_in_contacts") var senderInContacts: Boolean? = null,
     @ColumnInfo(name = "sender_tag") var senderTag: String? = null,
     @ColumnInfo(name = "keyword") var keyword: String? = null,
+    // Revision 9: several keywords per rule, as a JSON array string. When
+    // set, the keyword condition matches if ANY keyword matches (OR within
+    // the set). [keyword] stays as the legacy single keyword and is kept
+    // in sync with the first entry, so older readers still see something.
+    @ColumnInfo(name = "keywords_json") var keywordsJson: String? = null,
+    // Revision 9: how the set conditions combine — "ALL" (default, the
+    // historical AND) or "ANY" (OR across conditions).
+    @ColumnInfo(name = "condition_mode", defaultValue = "'ALL'") var conditionMode: String = "ALL",
+    // Revision 9: when true, keywords are regular expressions (case-
+    // insensitive) instead of substrings. An invalid pattern never matches
+    // and never crashes filing (see RuleEngine).
+    @ColumnInfo(name = "keyword_regex", defaultValue = "0") var keywordRegex: Boolean = false,
     @ColumnInfo(name = "contains_link") var containsLink: Boolean? = null,
     @ColumnInfo(name = "sender_class") var senderClass: String? = null,
 

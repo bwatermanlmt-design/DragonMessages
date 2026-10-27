@@ -126,7 +126,12 @@ class ManageFoldersActivity : SimpleActivity() {
     private fun showFolderOptions(folder: Folder) {
         val items = arrayListOf(
             RadioItem(0, getString(R.string.rename_folder)),
-            RadioItem(1, getString(R.string.delete_folder))
+            RadioItem(1, getString(R.string.delete_folder)),
+            RadioItem(2, getString(R.string.folder_move_up)),
+            RadioItem(3, getString(R.string.folder_move_down)),
+            RadioItem(4, getString(R.string.folder_set_parent)),
+            RadioItem(5, getString(R.string.folder_set_color)),
+            RadioItem(6, getString(R.string.folder_set_icon))
         )
         RadioGroupDialog(this, items) { selected ->
             when (selected as Int) {
@@ -143,6 +148,94 @@ class ManageFoldersActivity : SimpleActivity() {
                         refreshContent()
                     }
                 }
+
+                2, 3 -> ensureBackgroundThread {
+                    FolderManager.moveFolder(this@ManageFoldersActivity, folder, up = selected == 2)
+                    refreshContent()
+                }
+
+                4 -> pickParent(folder)
+                5 -> pickColor(folder)
+                6 -> pickIcon(folder)
+            }
+        }
+    }
+
+    /** Nest under another folder — or back to the top level. Descendants
+     *  are not offered: nesting under one would be a cycle, and
+     *  [FolderManager.setParent] would refuse it. */
+    private fun pickParent(folder: Folder) {
+        ensureBackgroundThread {
+            val folders = FolderManager.allFolders(this@ManageFoldersActivity)
+            val byId = folders.associateBy { it.id }
+            val descendants = HashSet<String>()
+            fun collect(id: String) {
+                folders.filter { it.parentId == id }.forEach { child ->
+                    if (descendants.add(child.id)) collect(child.id)
+                }
+            }
+            collect(folder.id)
+            val candidates = folders.filter { it.id != folder.id && it.id !in descendants }
+            val items = ArrayList<RadioItem>()
+            items += RadioItem(0, getString(R.string.folder_top_level))
+            candidates.forEachIndexed { index, candidate ->
+                items += RadioItem(index + 1, candidate.name)
+            }
+            val checkedId = if (folder.parentId == null) {
+                0
+            } else {
+                candidates.indexOfFirst { it.id == folder.parentId } + 1
+            }
+            runOnUiThread {
+                RadioGroupDialog(this@ManageFoldersActivity, items, checkedId, R.string.folder_set_parent) { selected ->
+                    val picked = selected as Int
+                    val parentId = if (picked == 0) null else candidates[picked - 1].id
+                    ensureBackgroundThread {
+                        if (FolderManager.setParent(this@ManageFoldersActivity, folder, parentId)) {
+                            refreshContent()
+                        } else {
+                            toast(org.fossify.commons.R.string.unknown_error_occurred)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** The palette, by name, in [FolderManager.PALETTE] order. */
+    private fun pickColor(folder: Folder) {
+        val names = listOf(
+            "Steel blue", "Purple", "Bronze", "Rust red", "Dark slate",
+            "Teal", "Plum", "Forest", "Indigo", "Burnt orange", "Olive"
+        )
+        val items = FolderManager.PALETTE.mapIndexed { index, _ ->
+            RadioItem(index, names.getOrElse(index) { "Color ${index + 1}" })
+        }
+        val checkedId = FolderManager.PALETTE.indexOf(folder.color)
+        RadioGroupDialog(this, ArrayList(items), checkedId, R.string.folder_set_color) { selected ->
+            ensureBackgroundThread {
+                FolderManager.setColor(this@ManageFoldersActivity, folder, FolderManager.PALETTE[selected as Int])
+                refreshContent()
+            }
+        }
+    }
+
+    /** A built-in glyph for the folder row, or the default folder glyph. */
+    private fun pickIcon(folder: Folder) {
+        val keys = listOf<String?>(null) + FolderManager.IMAGE_ICONS.keys.sorted()
+        val names = keys.map { key ->
+            if (key == null) {
+                getString(R.string.folder_icon_default)
+            } else {
+                key.replaceFirstChar { it.uppercase() }
+            }
+        }
+        val items = names.mapIndexed { index, name -> RadioItem(index, name) }
+        val checkedId = keys.indexOf(folder.image)
+        RadioGroupDialog(this, ArrayList(items), checkedId, R.string.folder_set_icon) { selected ->
+            ensureBackgroundThread {
+                FolderManager.setImage(this@ManageFoldersActivity, folder, keys[selected as Int])
+                refreshContent()
             }
         }
     }

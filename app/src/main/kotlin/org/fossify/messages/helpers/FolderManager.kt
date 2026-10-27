@@ -2,6 +2,7 @@ package org.fossify.messages.helpers
 
 import android.content.Context
 import android.graphics.Color
+import org.fossify.messages.R
 import org.fossify.messages.extensions.config
 import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.extensions.foldersDB
@@ -82,6 +83,84 @@ object FolderManager {
 
     fun renameFolder(context: Context, folder: Folder, newName: String) {
         context.foldersDB.insertOrUpdateFolder(folder.copy(name = newName))
+    }
+
+    /**
+     * Built-in icon keys for image dressing (revision 9). Keys are stored
+     * in Folder.image; null means the default folder glyph. Only
+     * drawables that exist in this module (plus the folder glyph, which
+     * the folder row layout already resolves) are listed, so a missing
+     * icon can never break the build.
+     */
+    val IMAGE_ICONS: Map<String, Int> = mapOf(
+        "image" to R.drawable.ic_image_vector,
+        "music" to R.drawable.ic_music_vector,
+        "document" to R.drawable.ic_document_vector,
+        "video" to R.drawable.ic_video_camera_vector,
+        "archive" to R.drawable.ic_archive_vector,
+        "pin" to R.drawable.ic_pin_vector,
+        "calendar" to R.drawable.ic_calendar_month_vector,
+        "pdf" to R.drawable.ic_vector_pdf,
+        "audio" to R.drawable.ic_vector_audio_file,
+        "zip" to R.drawable.ic_vector_folder_zip,
+    )
+
+    /** The glyph for a folder: its dressed icon, or the default folder glyph. */
+    fun iconRes(imageKey: String?): Int = IMAGE_ICONS[imageKey] ?: R.drawable.ic_folder_vector
+
+    /**
+     * Move a folder one step among its siblings (same parent, in
+     * sortOrder). Siblings are renumbered sequentially, so equal or
+     * gapped sortOrders can never make a move a silent no-op. Returns
+     * false when the folder is already at that end.
+     */
+    fun moveFolder(context: Context, folder: Folder, up: Boolean): Boolean {
+        val dao = context.foldersDB
+        val siblings = dao.getAllFolders()
+            .filter { it.parentId == folder.parentId }
+            .sortedWith(compareBy({ it.sortOrder }, { it.id }))
+        val index = siblings.indexOfFirst { it.id == folder.id }
+        if (index == -1) return false
+        val target = if (up) index - 1 else index + 1
+        if (target !in siblings.indices) return false
+        val reordered = siblings.toMutableList()
+        reordered.removeAt(index)
+        reordered.add(target, folder)
+        reordered.forEachIndexed { i, sibling ->
+            if (sibling.sortOrder != i) {
+                dao.insertOrUpdateFolder(sibling.copy(sortOrder = i))
+            }
+        }
+        return true
+    }
+
+    /**
+     * Nest a folder under a parent, or null to lift it back to the top
+     * level. Refuses cycles (a folder under itself or any of its
+     * descendants) and unknown parents; those return false and change
+     * nothing. No depth cap: Ben saw no need to artificially limit depth.
+     */
+    fun setParent(context: Context, folder: Folder, parentId: String?): Boolean {
+        if (parentId == folder.id) return false
+        if (parentId != null) {
+            val byId = context.foldersDB.getAllFolders().associateBy { it.id }
+            var current = byId[parentId] ?: return false
+            val visited = HashSet<String>()
+            while (true) {
+                if (current.id == folder.id || !visited.add(current.id)) return false
+                current = current.parentId?.let { byId[it] } ?: break
+            }
+        }
+        context.foldersDB.insertOrUpdateFolder(folder.copy(parentId = parentId))
+        return true
+    }
+
+    fun setColor(context: Context, folder: Folder, color: Int) {
+        context.foldersDB.insertOrUpdateFolder(folder.copy(color = color))
+    }
+
+    fun setImage(context: Context, folder: Folder, imageKey: String?) {
+        context.foldersDB.insertOrUpdateFolder(folder.copy(image = imageKey))
     }
 
     fun addLabelMapping(context: Context, label: String, mailbox: String): LabelMapping {

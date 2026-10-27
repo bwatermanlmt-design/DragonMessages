@@ -65,17 +65,23 @@ object FilterEvaluator {
      * so a blocked message is stored already-read and silent in Spam —
      * visible, auditable, and reversible by unblocking the number.
      */
+    /**
+     * Evaluate one arrival. [ocrText] is recognized image text (revision
+     * 9 OCR): keyword rules match against it like the body, but it is
+     * never stored, shown, or logged — it lives only for this evaluation.
+     */
     fun evaluateIncoming(
         context: Context,
         sender: String,
         body: String,
         channel: String,
-        threadId: Long
+        threadId: Long,
+        ocrText: String = ""
     ): RuleVerdict {
         FilterRuleSeeder.seedIfNeeded(context)
 
         val rules = context.filterRulesDB.getAllEnabledForEvaluation()
-        val facts = buildFacts(context, sender, body)
+        val facts = buildFacts(context, sender, body, ocrText)
         val raw = RuleEngine.evaluate(rules, facts)
 
         val conversation = runCatching {
@@ -137,13 +143,14 @@ object FilterEvaluator {
     }
 
     /** Everything the engine and precedence need to know about one message. */
-    private fun buildFacts(context: Context, sender: String, body: String): MessageFacts {
+    private fun buildFacts(context: Context, sender: String, body: String, ocrText: String = ""): MessageFacts {
         val inContacts = isSenderInContacts(context, sender)
         val labels = if (inContacts) contactLabels(context, sender) else emptyList()
         val businessLabel = businessLabelOf(labels)
         return MessageFacts(
             sender = sender,
             body = body,
+            ocrText = ocrText,
             senderInContacts = inContacts,
             senderTags = context.senderTagsDB.getForNumber(sender)?.tagList?.toSet() ?: emptySet(),
             businessLabeled = businessLabel != null,
@@ -173,6 +180,44 @@ object FilterEvaluator {
     /** Whether [sender] is in the address book (public wrapper for the macro screens). */
     fun isInContacts(context: Context, sender: String): Boolean {
         return isSenderInContacts(context, sender)
+    }
+
+    /**
+     * The address-book label that marks family (revision 9): the label
+     * mapped to the folder named "Family", when such a folder and mapping
+     * exist, else the literal "Family" label. Read failure answers
+     * "Family": the fallback, never a crash.
+     */
+    fun familyLabel(context: Context): String {
+        return try {
+            val familyFolder = context.foldersDB.getAllFolders()
+                .firstOrNull { it.name.equals("Family", ignoreCase = true) }
+            if (familyFolder != null) {
+                context.foldersDB.getAllLabelMappings()
+                    .firstOrNull { it.mailbox == Mailbox.customMailboxId(familyFolder.id) }
+                    ?.label
+            } else {
+                null
+            } ?: "Family"
+        } catch (e: Exception) {
+            "Family"
+        }
+    }
+
+    /**
+     * Whether any participant behind [sender] carries the family label.
+     * Group threads join participants with commas or semicolons, so the
+     * sender string is split and any family participant counts. A
+     * lookup failure answers false: unlabeled, never family by accident.
+     */
+    fun isFamilySender(context: Context, sender: String): Boolean {
+        val label = familyLabel(context)
+        return sender.split(',', ';').any { part ->
+            val number = part.trim()
+            number.isNotEmpty() &&
+                contactLabels(context, number).any { it.equals(label, ignoreCase = true) }
+        }
+    }
     }
 
     /**

@@ -124,7 +124,7 @@
     <!-- Visible folder-view action rows (revision 8) -->
     <string name="new_folder_subtitle">Create a folder of your own</string>
     <string name="manage_folders_subtitle">Rename or delete folders, map contact labels to them</string>
-    <string name="macros_subtitle">Saved searches that file conversations for you</string>
+    <string name="macros_subtitle">Rules that filter out or sort conversations for you</string>
     <!-- Custom folders, label mappings, macros (revision 7) -->
     <string name="send_to_folder">Send to folder</string>
     <string name="new_folder">New folder</string>
@@ -132,6 +132,17 @@
     <string name="folder_name_hint">Folder name</string>
     <string name="custom_folder_subtitle">Your folder</string>
     <string name="folder_label_subtitle">Contacts labelled %1$s</string>
+    <string name="folder_move_up">Move up</string>
+    <string name="folder_move_down">Move down</string>
+    <string name="folder_set_parent">Set parent</string>
+    <string name="folder_top_level">Top level (no parent)</string>
+    <string name="folder_set_color">Set color</string>
+    <string name="folder_set_icon">Set icon</string>
+    <string name="folder_icon_default">Folder</string>
+    <string name="family_first_sort">Family first</string>
+    <string name="everyone_else_label">Everyone else</string>
+    <string name="tip_link_title">Buy me a beer</string>
+    <string name="tip_link_subtitle">Voluntary tip — opens in your browser</string>
     <string name="file_labelled_contacts_here">File contacts with a label here</string>
     <string name="no_label">No label</string>
     <string name="manage_folders">Manage folders</string>
@@ -150,15 +161,15 @@
     <string name="silence_folder">Silence notifications</string>
     <string name="unsilence_folder">Unsilence notifications</string>
     <string name="placed_in_folder">Placed in %1$s</string>
-    <string name="macros">Macros</string>
-    <string name="new_macro">New macro</string>
-    <string name="edit_macro">Edit macro</string>
-    <string name="delete_macro">Delete macro</string>
-    <string name="delete_macro_confirmation">Delete the macro \"%1$s\"? Conversations it already filed stay where they are.</string>
-    <string name="no_macros_yet">No macros yet. A macro is a saved search with a folder: run it, tick the conversations you want, and they are filed there.</string>
-    <string name="macro_name_hint">Macro name</string>
+    <string name="macros">Rules</string>
+    <string name="new_macro">New rule</string>
+    <string name="edit_macro">Edit rule</string>
+    <string name="delete_macro">Delete rule</string>
+    <string name="delete_macro_confirmation">Delete the rule \"%1$s\"? Conversations it already filed stay where they are.</string>
+    <string name="no_macros_yet">No rules yet. A rule matches conversations and files them: filter out to Spam, or sort to a folder. Run it, tick the conversations you want, and they are filed there.</string>
+    <string name="macro_name_hint">Rule name</string>
     <string name="macro_sender_contains">Sender contains (number or name)</string>
-    <string name="macro_keyword">Message contains</string>
+    <string name="macro_keyword">Message contains (one keyword per line)</string>
     <string name="macro_sender_class">Sender kind</string>
     <string name="macro_any_kind">Any kind</string>
     <string name="macro_long_number">Long number</string>
@@ -174,13 +185,22 @@
     <string name="macro_automatic_short">automatic</string>
     <string name="run_macro">Run</string>
     <string name="macro_run_title">Run: %1$s</string>
-    <string name="macro_no_matches">No conversations match this macro</string>
+    <string name="macro_no_matches">No conversations match this rule</string>
     <string name="macro_file_selected">File selected (%1$d)</string>
     <string name="macro_filed_count">%1$d conversations filed to %2$s</string>
     <string name="macro_current_folder">now in %1$s</string>
-    <string name="macro_needs_a_name">Give the macro a name first</string>
+    <string name="macro_needs_a_name">Give the rule a name first</string>
     <string name="macro_needs_a_criterion">Set at least one thing to match on</string>
     <string name="save">Save</string>
+    <!-- Revision 9 rules: one rules concept (filters and macros merged) -->
+    <string name="rule_match_mode">Match</string>
+    <string name="rule_match_all">All conditions</string>
+    <string name="rule_match_any">Any condition</string>
+    <string name="rule_keyword_regex">Treat keywords as patterns (regex)</string>
+    <string name="rule_target_hint">Spam filters out silently; folders sort.</string>
+    <string name="rules_import">Import rules</string>
+    <string name="rules_export">Export rules</string>
+    <string name="rules_subtitle">Rules filter out to Spam or sort to folders. A rule fires on new messages; run it to file existing conversations.</string>
     <!-- Recycle bin -->
     <string name="restore">Restore</string>
     <string name="restore_all_messages">Restore all messages</string>

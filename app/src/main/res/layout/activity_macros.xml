@@ -36,6 +36,24 @@
             android:paddingBottom="@dimen/activity_margin">
 
             <org.fossify.commons.views.MyTextView
+                android:id="@+id/import_rules_button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/ripple_all_corners"
+                android:padding="@dimen/activity_margin"
+                android:text="@string/rules_import"
+                android:textSize="@dimen/bigger_text_size" />
+
+            <org.fossify.commons.views.MyTextView
+                android:id="@+id/export_rules_button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/ripple_all_corners"
+                android:padding="@dimen/activity_margin"
+                android:text="@string/rules_export"
+                android:textSize="@dimen/bigger_text_size" />
+
+            <org.fossify.commons.views.MyTextView
                 android:id="@+id/no_macros_placeholder"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -52,6 +70,14 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical" />
+
+            <org.fossify.commons.views.MyTextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="@dimen/activity_margin"
+                android:alpha="0.65"
+                android:text="@string/rules_subtitle"
+                android:textSize="@dimen/normal_text_size" />
 
             <org.fossify.commons.views.MyTextView
                 android:id="@+id/new_macro_button"

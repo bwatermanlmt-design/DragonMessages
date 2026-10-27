@@ -15,6 +15,7 @@ import org.fossify.messages.R
 import org.fossify.messages.databinding.ActivityMacroEditorBinding
 import org.fossify.messages.dialogs.CreateFolderDialog
 import org.fossify.messages.extensions.filterRulesDB
+import org.fossify.messages.filtering.RuleEngine
 import org.fossify.messages.filtering.SenderClassifier
 import org.fossify.messages.helpers.FolderManager
 import org.fossify.messages.helpers.MACRO_ID
@@ -22,14 +23,23 @@ import org.fossify.messages.models.FilterRule
 import org.fossify.messages.models.Mailbox
 
 /**
- * The macro editor (revision 7): a friendly face over one rule row. A
- * macro is a name, a handful of optional criteria (every set criterion
- * must match), a target folder — never the Locker, which is hand-filled
- * only — and an automatic toggle. Macros file at priority
- * [MACRO_PRIORITY]: after Ben's converted blocked keywords, before the
- * starter pack's content rules — his deliberate searches outrank the
- * fingerprints — and ties among macros break by creation order, like
- * rules everywhere else in the engine.
+ * The rule editor (revision 9): a friendly face over one rule row. One
+ * rules concept now — the old filters and macros are the same list, so
+ * this editor edits any rule: a name, a handful of optional criteria,
+ * how they combine (all / any), keywords (one per line, optionally
+ * patterns), a destination — never the Locker, which is hand-filled
+ * only — and, for rules carried over from the macro era, the automatic
+ * toggle. New rules sit at priority [DEFAULT_RULE_PRIORITY]: after
+ * Ben's converted blocked keywords, before the starter pack's content
+ * rules — his deliberate rules outrank the fingerprints — and ties break
+ * by creation order, like rules everywhere else in the engine.
+ *
+ * Fields this editor does not show (exact number, number pattern, sender
+ * tag, tag assignment, priority, enabled) are preserved untouched when an
+ * existing rule is saved — editing here never zeroes them.
+ *
+ * Class and layout names still say "Macro" — that is code history, not
+ * screen text: no user-visible string on this screen says "macro".
  */
 class MacroEditorActivity : SimpleActivity() {
     private val binding by viewBinding(ActivityMacroEditorBinding::inflate)
@@ -62,6 +72,8 @@ class MacroEditorActivity : SimpleActivity() {
             binding.macroClassAny.isChecked = true
             binding.macroContactsEither.isChecked = true
             binding.macroLinkEither.isChecked = true
+            binding.ruleMatchAll.isChecked = true
+            binding.macroAutomaticCheckbox.beVisibleIf(false)
             updateTargetLabel()
         }
     }
@@ -83,7 +95,7 @@ class MacroEditorActivity : SimpleActivity() {
             runOnUiThread {
                 binding.macroNameEdittext.setText(macro.name)
                 binding.macroSenderContainsEdittext.setText(macro.senderContains ?: "")
-                binding.macroKeywordEdittext.setText(macro.keyword ?: "")
+                binding.macroKeywordEdittext.setText(RuleEngine.effectiveKeywords(macro).joinToString("\n"))
                 when (macro.senderClass) {
                     SenderClassifier.LONG_NUMBER -> binding.macroClassLong.isChecked = true
                     SenderClassifier.SHORT_CODE -> binding.macroClassShort.isChecked = true
@@ -99,8 +111,18 @@ class MacroEditorActivity : SimpleActivity() {
                     true -> binding.macroLinkYes.isChecked = true
                     else -> binding.macroLinkEither.isChecked = true
                 }
-                targetMailbox = macro.mailbox
+                if (macro.conditionMode == RuleEngine.CONDITION_MODE_ANY) {
+                    binding.ruleMatchAny.isChecked = true
+                } else {
+                    binding.ruleMatchAll.isChecked = true
+                }
+                binding.ruleRegexCheckbox.isChecked = macro.keywordRegex
+                // The automatic toggle only means something for rules
+                // carried over from the macro era; plain rules always fire
+                // on arrival, so the checkbox hides for them.
+                binding.macroAutomaticCheckbox.beVisibleIf(macro.isMacro)
                 binding.macroAutomaticCheckbox.isChecked = macro.macroAutomatic
+                targetMailbox = macro.mailbox
                 updateTargetLabel()
             }
         }
@@ -153,7 +175,10 @@ class MacroEditorActivity : SimpleActivity() {
         }
 
         val senderContains = binding.macroSenderContainsEdittext.value.trim().ifEmpty { null }
-        val keyword = binding.macroKeywordEdittext.value.trim().ifEmpty { null }
+        val keywords = binding.macroKeywordEdittext.value
+            .lines()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
         val senderClass = when (binding.macroSenderClassGroup.checkedRadioButtonId) {
             R.id.macro_class_long -> SenderClassifier.LONG_NUMBER
             R.id.macro_class_short -> SenderClassifier.SHORT_CODE
@@ -169,15 +194,19 @@ class MacroEditorActivity : SimpleActivity() {
             R.id.macro_link_yes -> true
             else -> null
         }
+        val conditionMode = when (binding.ruleMatchGroup.checkedRadioButtonId) {
+            R.id.rule_match_any -> RuleEngine.CONDITION_MODE_ANY
+            else -> RuleEngine.CONDITION_MODE_ALL
+        }
+        val keywordRegex = binding.ruleRegexCheckbox.isChecked
 
-        if (senderContains == null && keyword == null && senderClass == null &&
+        if (senderContains == null && keywords.isEmpty() && senderClass == null &&
             senderInContacts == null && containsLink == null
         ) {
             toast(R.string.macro_needs_a_criterion)
             return
         }
 
-        val automatic = binding.macroAutomaticCheckbox.isChecked
         ensureBackgroundThread {
             val existing = if (macroId != 0L) {
                 try {
@@ -189,24 +218,28 @@ class MacroEditorActivity : SimpleActivity() {
                 null
             }
 
-            val macro = (existing ?: FilterRule(name = name, mailbox = targetMailbox)).copy(
+            val automatic = if (existing?.isMacro == true) {
+                binding.macroAutomaticCheckbox.isChecked
+            } else {
+                existing?.macroAutomatic ?: false
+            }
+            val rule = (existing ?: FilterRule(name = name, mailbox = targetMailbox)).copy(
                 name = name,
-                enabled = true,
-                priority = MACRO_PRIORITY,
-                senderExact = null,
-                senderPattern = null,
+                enabled = existing?.enabled ?: true,
+                priority = existing?.priority ?: DEFAULT_RULE_PRIORITY,
                 senderContains = senderContains,
                 senderInContacts = senderInContacts,
-                senderTag = null,
-                keyword = keyword,
+                keyword = keywords.firstOrNull(),
+                keywordsJson = if (keywords.isNotEmpty()) RuleEngine.keywordsToJson(keywords) else null,
+                conditionMode = conditionMode,
+                keywordRegex = keywordRegex,
                 containsLink = containsLink,
                 senderClass = senderClass,
                 mailbox = targetMailbox,
-                assignTag = null,
-                isMacro = true,
+                isMacro = existing?.isMacro ?: false,
                 macroAutomatic = automatic
             )
-            filterRulesDB.insertOrUpdate(macro)
+            filterRulesDB.insertOrUpdate(rule)
             runOnUiThread {
                 finish()
             }
@@ -230,8 +263,8 @@ class MacroEditorActivity : SimpleActivity() {
     }
 
     companion object {
-        /** Where macros sit in the rules order (see the class doc). */
-        const val MACRO_PRIORITY = 15
+        /** Where user-created rules sit in the rules order (see the class doc). */
+        const val DEFAULT_RULE_PRIORITY = 15
 
         private const val NEW_FOLDER_ID = 1000
     }

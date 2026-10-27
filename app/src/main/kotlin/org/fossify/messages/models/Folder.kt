@@ -17,4 +17,11 @@ data class Folder(
     @ColumnInfo(name = "name") var name: String,
     @ColumnInfo(name = "color") var color: Int,
     @ColumnInfo(name = "sort_order") var sortOrder: Int,
+    // Revision 9: optional nesting. Null means top-level (flat, the
+    // default). A folder with a parent renders under it; there is no
+    // artificial depth cap. Cycles are refused by FolderManager.setParent.
+    @ColumnInfo(name = "parent_id") var parentId: String? = null,
+    // Revision 9: optional image dressing — a built-in icon key (see
+    // FolderManager.IMAGE_ICONS), or null for the default folder glyph.
+    @ColumnInfo(name = "image") var image: String? = null,
 )

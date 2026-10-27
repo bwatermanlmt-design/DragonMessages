@@ -570,6 +570,31 @@
                     android:text="@string/file_existing_conversations" />
 
             </RelativeLayout>
+
+            <!-- "Buy me a beer" (revision 9): a quiet row at the end of
+                 Settings. Hidden while TipLink.TIP_URL is blank. -->
+            <RelativeLayout
+                android:id="@+id/settings_tip_link_holder"
+                style="@style/SettingsHolderTextViewStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_tip_link"
+                    style="@style/SettingsTextLabelStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/tip_link_title" />
+
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_tip_link_subtitle"
+                    style="@style/SettingsTextValueStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_below="@+id/settings_tip_link"
+                    android:text="@string/tip_link_subtitle" />
+
+            </RelativeLayout>
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

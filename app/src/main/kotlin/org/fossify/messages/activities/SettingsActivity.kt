@@ -35,14 +35,14 @@ import org.fossify.messages.databinding.ActivitySettingsBinding
 import org.fossify.messages.dialogs.ExportMessagesDialog
 import org.fossify.messages.extensions.config
 import org.fossify.messages.extensions.emptyMessagesRecycleBin
-import org.fossify.messages.extensions.filterRulesDB
 import org.fossify.messages.extensions.messagesDB
-import org.fossify.messages.extensions.senderTagsDB
 import org.fossify.messages.helpers.FILE_SIZE_100_KB
 import org.fossify.messages.helpers.FILTER_RULES_EXPORT_EXTENSION
+import org.fossify.messages.helpers.TipLink
 import org.fossify.messages.helpers.FilterRuleSet
 import org.fossify.messages.helpers.runRetroactiveFiling
 import org.fossify.messages.helpers.FilterRulesExporter
+import org.fossify.messages.helpers.RuleSetStore
 import org.fossify.messages.helpers.FilterRulesImporter
 import org.fossify.messages.helpers.FILE_SIZE_1_MB
 import org.fossify.messages.helpers.FILE_SIZE_200_KB
@@ -55,9 +55,6 @@ import org.fossify.messages.helpers.LOCK_SCREEN_SENDER
 import org.fossify.messages.helpers.LOCK_SCREEN_SENDER_MESSAGE
 import org.fossify.messages.helpers.MessagesImporter
 import org.fossify.messages.helpers.refreshConversations
-import org.fossify.messages.helpers.toEntity
-import org.fossify.messages.helpers.toRuleSet
-import org.fossify.messages.models.SenderTags
 import java.util.Locale
 import kotlin.system.exitProcess
 
@@ -130,6 +127,7 @@ class SettingsActivity : SimpleActivity() {
         setupManageBlockedKeywords()
         setupManageFolders()
         setupMacros()
+        setupTipLink()
         setupChangeDateTimeFormat()
         setupFontSize()
         setupShowCharacterCounter()
@@ -206,7 +204,7 @@ class SettingsActivity : SimpleActivity() {
     private fun exportFilterRules(uri: Uri) {
         toast(org.fossify.commons.R.string.exporting)
         ensureBackgroundThread {
-            val ruleSet = filterRulesDB.getAll().toRuleSet(senderTagsDB.getAll())
+            val ruleSet = RuleSetStore.buildRuleSet(this)
             val outputStream = try {
                 contentResolver.openOutputStream(uri)
             } catch (e: Exception) {
@@ -257,14 +255,9 @@ class SettingsActivity : SimpleActivity() {
         }
     }
 
-    /** Import replaces: the file's rules and sender tags become the whole set. */
+    /** Import replaces (see RuleSetStore): rules and tags wholesale, folders/filings/mappings merged. */
     private fun replaceFilterRules(ruleSet: FilterRuleSet) {
-        filterRulesDB.deleteAll()
-        filterRulesDB.insertAll(ruleSet.rules.map { it.toEntity() })
-        senderTagsDB.deleteAll()
-        ruleSet.senderTags.forEach { (number, tags) ->
-            senderTagsDB.insertOrUpdate(SenderTags.of(number, tags))
-        }
+        RuleSetStore.replaceAll(this, ruleSet)
     }
 
     override fun onPause() {
@@ -342,6 +335,17 @@ class SettingsActivity : SimpleActivity() {
         settingsManageFoldersHolder.setOnClickListener {
             Intent(this@SettingsActivity, ManageFoldersActivity::class.java).apply {
                 startActivity(this)
+            }
+        }
+    }
+
+    /** The tip row: visible only once Ben supplies a destination (see [TipLink]). */
+    private fun setupTipLink() = binding.apply {
+        settingsTipLinkHolder.beVisibleIf(TipLink.TIP_URL.isNotBlank())
+        settingsTipLinkHolder.setOnClickListener {
+            if (TipLink.TIP_URL.isNotBlank()) {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(TipLink.TIP_URL))
+                startActivity(intent)
             }
         }
     }

@@ -1,8 +1,10 @@
 package org.fossify.messages.filtering
 
+import org.fossify.messages.helpers.FilterRuleDto
 import org.fossify.messages.helpers.FilterRuleSet
 import org.fossify.messages.helpers.FilterRulesExporter
 import org.fossify.messages.helpers.FilterRulesImporter
+import org.fossify.messages.helpers.toEntity
 import org.fossify.messages.helpers.toRuleSet
 import org.fossify.messages.models.FilterRule
 import org.fossify.messages.models.Mailbox
@@ -309,6 +311,200 @@ class RuleEngineTest {
     fun `importer rejects garbage and newer versions`() {
         assertNull(FilterRulesImporter.parseRuleSet("not json".byteInputStream()))
         assertNull(FilterRulesImporter.parseRuleSet("""{"version": 99, "rules": []}""".byteInputStream()))
+    }
+
+    // endregion
+
+    // region revision 9 rules: multi-keyword, ANY mode, regex
+
+    private fun keywordsRule(
+        keywords: List<String>,
+        mailbox: String = Mailbox.SPAM,
+        conditionMode: String = RuleEngine.CONDITION_MODE_ALL,
+        keywordRegex: Boolean = false,
+        priority: Int = 1,
+    ) = FilterRuleDto(
+        name = "keywords",
+        priority = priority,
+        keywords = keywords,
+        conditionMode = conditionMode,
+        keywordRegex = keywordRegex,
+        mailbox = mailbox
+    ).toEntity()
+
+    @Test
+    fun `multi keyword matches if any keyword matches`() {
+        val rules = listOf(keywordsRule(listOf("alpha", "beta")))
+        assertEquals(Mailbox.SPAM, RuleEngine.evaluate(rules, facts(body = "has beta in it")).mailbox)
+        assertEquals(Mailbox.SPAM, RuleEngine.evaluate(rules, facts(body = "ALPHA here")).mailbox)
+        assertNull(RuleEngine.evaluate(rules, facts(body = "neither here")).matchedRule)
+    }
+
+    @Test
+    fun `legacy single keyword still works when no keyword list is set`() {
+        val rules = listOf(
+            FilterRule(name = "legacy", priority = 1, keyword = "winner", mailbox = Mailbox.SPAM)
+        )
+        assertEquals(Mailbox.SPAM, RuleEngine.evaluate(rules, facts(body = "winner")).mailbox)
+        assertNull(RuleEngine.evaluate(rules, facts(body = "loser")).matchedRule)
+    }
+
+    @Test
+    fun `malformed keyword json falls back to the legacy keyword`() {
+        val rule = FilterRule(
+            name = "broken json",
+            priority = 1,
+            keyword = "fallback",
+            keywordsJson = "[not json",
+            mailbox = Mailbox.SPAM
+        )
+        assertTrue(RuleEngine.matches(rule, facts(body = "fallback here")))
+        assertFalse(RuleEngine.matches(rule, facts(body = "nothing here")))
+        assertEquals(listOf("fallback"), RuleEngine.effectiveKeywords(rule))
+    }
+
+    @Test
+    fun `ANY mode matches when any one condition matches`() {
+        val rules = listOf(
+            FilterRule(
+                name = "any",
+                priority = 1,
+                senderInContacts = true,
+                keyword = "winner",
+                conditionMode = RuleEngine.CONDITION_MODE_ANY,
+                mailbox = Mailbox.SPAM
+            )
+        )
+        // contact without the keyword matches via the contacts condition
+        assertEquals(Mailbox.SPAM, RuleEngine.evaluate(rules, facts(body = "hi", inContacts = true)).mailbox)
+        // stranger with the keyword matches via the keyword condition
+        assertEquals(Mailbox.SPAM, RuleEngine.evaluate(rules, facts(body = "winner", inContacts = false)).mailbox)
+        // stranger without the keyword matches neither
+        assertNull(RuleEngine.evaluate(rules, facts(body = "hi", inContacts = false)).matchedRule)
+    }
+
+    @Test
+    fun `ALL mode still requires every condition`() {
+        val rules = listOf(
+            FilterRule(
+                name = "all",
+                priority = 1,
+                senderInContacts = true,
+                keyword = "winner",
+                conditionMode = RuleEngine.CONDITION_MODE_ALL,
+                mailbox = Mailbox.SPAM
+            )
+        )
+        assertNull(RuleEngine.evaluate(rules, facts(body = "hi", inContacts = true)).matchedRule)
+        assertNull(RuleEngine.evaluate(rules, facts(body = "winner", inContacts = false)).matchedRule)
+        assertEquals(Mailbox.SPAM, RuleEngine.evaluate(rules, facts(body = "winner", inContacts = true)).mailbox)
+    }
+
+    @Test
+    fun `a rule with no conditions still matches everything in either mode`() {
+        val allMode = FilterRule(name = "catch all", priority = 1, mailbox = Mailbox.SPAM)
+        val anyMode = allMode.copy(conditionMode = RuleEngine.CONDITION_MODE_ANY)
+        assertTrue(RuleEngine.matches(allMode, facts()))
+        assertTrue(RuleEngine.matches(anyMode, facts()))
+    }
+
+    @Test
+    fun `regex keywords match as patterns and are case insensitive`() {
+        val rules = listOf(keywordsRule(listOf("win\\d+"), keywordRegex = true))
+        assertEquals(Mailbox.SPAM, RuleEngine.evaluate(rules, facts(body = "win42 today")).mailbox)
+        assertEquals(Mailbox.SPAM, RuleEngine.evaluate(rules, facts(body = "WIN99")).mailbox)
+        assertNull(RuleEngine.evaluate(rules, facts(body = "winner")).matchedRule)
+    }
+
+    @Test
+    fun `an invalid regex never matches and never throws`() {
+        val rules = listOf(keywordsRule(listOf("[a-"), keywordRegex = true))
+        assertNull(RuleEngine.evaluate(rules, facts(body = "anything at all")).matchedRule)
+        // and the same keyword as a plain substring still works when the flag is off
+        val plain = listOf(keywordsRule(listOf("[a-")))
+        assertEquals(Mailbox.SPAM, RuleEngine.evaluate(plain, facts(body = "has [a- in it")).mailbox)
+    }
+
+    @Test
+    fun `first match wins with the new fields too`() {
+        val rules = listOf(
+            keywordsRule(listOf("beta"), mailbox = Mailbox.AUTH, priority = 1),
+            keywordsRule(listOf("beta"), mailbox = Mailbox.SPAM, priority = 2)
+        )
+        assertEquals(Mailbox.AUTH, RuleEngine.evaluate(rules, facts(body = "beta")).mailbox)
+    }
+
+    @Test
+    fun `new rule fields survive an export and reimport round trip`() {
+        val rule = keywordsRule(
+            listOf("alpha", "beta"),
+            mailbox = Mailbox.customMailboxId("folder-family"),
+            conditionMode = RuleEngine.CONDITION_MODE_ANY,
+            keywordRegex = true
+        ).copy(name = "fancy")
+        val ruleSet = listOf(rule).toRuleSet(emptyList())
+        val text = FilterRulesExporter.json.encodeToString(FilterRuleSet.serializer(), ruleSet)
+        val parsed = FilterRulesImporter.parseRuleSet(text.byteInputStream())
+        assertEquals(ruleSet, parsed)
+    }
+
+    // region revision 9 OCR text (recognized image text feeds keyword matching only)
+
+    private fun ocrFacts(body: String = "", ocrText: String = "") = MessageFacts(
+        sender = "+14805550137",
+        body = body,
+        senderInContacts = false,
+        ocrText = ocrText
+    )
+
+    @Test
+    fun `keyword in ocr text matches like body text`() {
+        val rule = keywordsRule(listOf("vote"), mailbox = Mailbox.SPAM)
+        val verdict = RuleEngine.evaluate(listOf(rule), ocrFacts(ocrText = "Vote early, vote often"))
+        assertEquals(Mailbox.SPAM, verdict.mailbox)
+    }
+
+    @Test
+    fun `keyword in neither body nor ocr text does not match`() {
+        val rule = keywordsRule(listOf("vote"), mailbox = Mailbox.SPAM)
+        val verdict = RuleEngine.evaluate(listOf(rule), ocrFacts(body = "hello", ocrText = "pretty picture"))
+        assertEquals(Mailbox.QUARANTINE, verdict.mailbox)
+    }
+
+    @Test
+    fun `empty ocr text preserves body-only matching`() {
+        val rule = keywordsRule(listOf("vote"), mailbox = Mailbox.SPAM)
+        val verdict = RuleEngine.evaluate(listOf(rule), ocrFacts(body = "please vote"))
+        assertEquals(Mailbox.SPAM, verdict.mailbox)
+    }
+
+    @Test
+    fun `link rules read body only, never ocr text`() {
+        val linkRule = FilterRule(name = "link", mailbox = Mailbox.SPAM, containsLink = true)
+        assertFalse(RuleEngine.matches(linkRule, ocrFacts(body = "hello", ocrText = "see http://example.com")))
+        assertTrue(RuleEngine.matches(linkRule, ocrFacts(body = "see http://example.com", ocrText = "hello")))
+    }
+
+    @Test
+    fun `regex keywords match against ocr text too`() {
+        val rule = keywordsRule(listOf("vot\\w+"), mailbox = Mailbox.SPAM, keywordRegex = true)
+        val verdict = RuleEngine.evaluate(listOf(rule), ocrFacts(ocrText = "VOTING day"))
+        assertEquals(Mailbox.SPAM, verdict.mailbox)
+    }
+
+    // endregion
+
+    @Test
+    fun `an old file without the new fields parses with defaults`() {
+        val text = """{"version": 1, "rules": [{"name": "old", "mailbox": "spam", "keyword": "hello"}]}"""
+        val parsed = FilterRulesImporter.parseRuleSet(text.byteInputStream())
+        val rule = parsed!!.rules.single()
+        assertEquals("hello", rule.keyword)
+        assertEquals(emptyList<String>(), rule.keywords)
+        assertEquals(RuleEngine.CONDITION_MODE_ALL, rule.conditionMode)
+        assertFalse(rule.keywordRegex)
+        assertEquals("hello", rule.toEntity().keyword)
+        assertEquals(listOf("hello"), RuleEngine.effectiveKeywords(rule.toEntity()))
     }
 
     // endregion

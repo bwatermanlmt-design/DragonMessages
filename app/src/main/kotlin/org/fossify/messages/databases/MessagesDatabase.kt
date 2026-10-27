@@ -46,7 +46,7 @@ import org.fossify.messages.models.SenderTags
         LabelMapping::class,
         SenderFiling::class
     ],
-    version = 15
+    version = 16
 )
 @TypeConverters(Converters::class)
 abstract class MessagesDatabase : RoomDatabase() {
@@ -96,6 +96,7 @@ abstract class MessagesDatabase : RoomDatabase() {
                             .addMigrations(MIGRATION_12_13)
                             .addMigrations(MIGRATION_13_14)
                             .addMigrations(MIGRATION_14_15)
+                            .addMigrations(MIGRATION_15_16)
                             .build()
                     }
                 }
@@ -263,6 +264,26 @@ abstract class MessagesDatabase : RoomDatabase() {
                     execSQL("ALTER TABLE filter_rules ADD COLUMN `sender_contains` TEXT")
                     execSQL("ALTER TABLE filter_rules ADD COLUMN `is_macro` INTEGER NOT NULL DEFAULT 0")
                     execSQL("ALTER TABLE filter_rules ADD COLUMN `macro_automatic` INTEGER NOT NULL DEFAULT 0")
+                }
+            }
+        }
+
+        private val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.apply {
+                    // Revision 9 rules: several keywords per rule, an
+                    // AND/OR condition mode, and an optional regex flag.
+                    // Defaults match the entity declarations exactly, so
+                    // Room's schema validation passes on upgraded installs
+                    // (and fallbackToDestructiveMigration never fires).
+                    execSQL("ALTER TABLE filter_rules ADD COLUMN `keywords_json` TEXT")
+                    execSQL("ALTER TABLE filter_rules ADD COLUMN `condition_mode` TEXT NOT NULL DEFAULT 'ALL'")
+                    execSQL("ALTER TABLE filter_rules ADD COLUMN `keyword_regex` INTEGER NOT NULL DEFAULT 0")
+
+                    // Revision 9 folders: optional nesting (parent) and
+                    // optional image dressing (built-in icon key).
+                    execSQL("ALTER TABLE folders ADD COLUMN `parent_id` TEXT")
+                    execSQL("ALTER TABLE folders ADD COLUMN `image` TEXT")
                 }
             }
         }

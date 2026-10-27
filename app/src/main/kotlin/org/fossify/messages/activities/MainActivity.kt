@@ -5,8 +5,13 @@ import android.app.role.RoleManager
 import android.content.Intent
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.drawable.Icon
 import android.graphics.drawable.LayerDrawable
+import android.view.View
+import androidx.recyclerview.widget.RecyclerView
 import android.os.Bundle
 import android.provider.Telephony
 import android.text.TextUtils
@@ -58,6 +63,8 @@ import org.fossify.messages.extensions.checkAndDeleteOldRecycleBinMessages
 import org.fossify.messages.extensions.clearAllMessagesIfNeeded
 import org.fossify.messages.extensions.clearExpiredScheduledMessages
 import org.fossify.messages.extensions.config
+import org.fossify.messages.filtering.ConversationOrdering
+import org.fossify.messages.helpers.FilterEvaluator
 import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.extensions.getConversations
 import org.fossify.messages.extensions.getMessages
@@ -90,6 +97,20 @@ class MainActivity : SimpleActivity() {
     /** Mailbox this instance is filtered to (from the folder view), or null for the merged list. */
     private var mailboxFilter: String? = null
 
+    /** Family-first sort lives in its own prefs file, not the commons
+     *  config: it is app-specific state, and forking commons Config for
+     *  one toggle would be the wrong layer to touch. */
+    private val spawnPrefs by lazy { getSharedPreferences("spawn_messages_prefs", MODE_PRIVATE) }
+
+    private var familyFirstSort: Boolean
+        get() = spawnPrefs.getBoolean("family_first_sort", false)
+        set(value) = spawnPrefs.edit().putBoolean("family_first_sort", value).apply()
+
+    /** Thread ids carrying the family label in the current list, computed
+     *  on the background thread at each refresh (never on the UI thread:
+     *  one contacts lookup per sender). Empty outside the Contacts view. */
+    private var familyThreadIds = emptySet<Long>()
+
     private val binding by viewBinding(ActivityMainBinding::inflate)
 
     @SuppressLint("InlinedApi")
@@ -102,6 +123,7 @@ class MainActivity : SimpleActivity() {
         setupOptionsMenu()
         refreshMenuItems()
         setupMailboxTitle()
+        binding.conversationsList.addItemDecoration(FamilySeparatorDecoration())
 
         setupEdgeToEdge(padBottomImeAndSystem = listOf(binding.conversationsList))
 
@@ -190,6 +212,18 @@ class MainActivity : SimpleActivity() {
                 R.id.show_recycle_bin -> launchRecycleBin()
                 R.id.show_archived -> launchArchivedConversations()
                 R.id.show_quarantine -> launchQuarantinedConversations()
+                R.id.family_first -> {
+                    familyFirstSort = !familyFirstSort
+                    refreshMenuItems()
+                    val current = try {
+                        getOrCreateConversationsAdapter().currentList
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                    if (current.isNotEmpty()) {
+                        setupConversations(ArrayList(current))
+                    }
+                }
                 R.id.manage_folders -> launchManageFolders()
                 R.id.macros -> launchMacros()
                 R.id.settings -> launchSettings()
@@ -220,6 +254,12 @@ class MainActivity : SimpleActivity() {
         binding.mainMenu.requireToolbar().menu.apply {
             findItem(R.id.show_recycle_bin).isVisible = config.useRecycleBin
             findItem(R.id.show_archived).isVisible = config.isArchiveAvailable
+            // The toggle only does something in the Contacts view, so it
+            // only appears there — never a dead switch in another folder.
+            findItem(R.id.family_first)?.apply {
+                isVisible = mailboxFilter == Mailbox.CONTACTS
+                isChecked = familyFirstSort
+            }
         }
     }
 
@@ -348,6 +388,7 @@ class MainActivity : SimpleActivity() {
                 conversations
             }
 
+            familyThreadIds = computeFamilyThreadIds(conversations)
             runOnUiThread {
                 setupConversations(conversations, cached = true)
                 getNewConversations(
@@ -429,6 +470,7 @@ class MainActivity : SimpleActivity() {
             } else {
                 conversationsDB.getNonArchived() as ArrayList<Conversation>
             }
+            familyThreadIds = computeFamilyThreadIds(allConversations)
             runOnUiThread {
                 setupConversations(allConversations)
             }
@@ -441,6 +483,73 @@ class MainActivity : SimpleActivity() {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Family threads among [conversations], via address-book labels.
+     * Must run off the UI thread: one contacts lookup per sender. The
+     * result is cached per refresh in [familyThreadIds]; outside the
+     * Contacts view it is empty, because the sort never applies there.
+     */
+    private fun computeFamilyThreadIds(conversations: List<Conversation>): Set<Long> {
+        if (mailboxFilter != Mailbox.CONTACTS) return emptySet()
+        return conversations.filter { conversation ->
+            FilterEvaluator.isFamilySender(this, conversation.phoneNumber)
+        }.map { it.threadId }.toSet()
+    }
+
+    /**
+     * The family separator (revision 9): a divider line plus an
+     * "Everyone else" label above the first rest item, when family-first
+     * sorting is on in the Contacts view and both sections are
+     * non-empty. An ItemDecoration, not adapter surgery: the adapter
+     * extends the commons base adapter, whose position-based selection
+     * and CAB logic would break if fake rows were injected into its
+     * list — never a fake Conversation row.
+     */
+    private inner class FamilySeparatorDecoration : RecyclerView.ItemDecoration() {
+        private val gapPx = (48 * resources.displayMetrics.density).toInt()
+        private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = getProperTextColor()
+            alpha = 165
+            textSize = 14 * resources.displayMetrics.scaledDensity
+        }
+        private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = getProperTextColor()
+            alpha = 60
+            strokeWidth = resources.displayMetrics.density
+        }
+
+        private fun currentBoundary(): Int {
+            if (!familyFirstSort || mailboxFilter != Mailbox.CONTACTS) return -1
+            val adapter = binding.conversationsList.adapter as? ConversationsAdapter ?: return -1
+            return ConversationOrdering.separatorIndex(
+                adapter.currentList, config.pinnedConversations, familyThreadIds, true
+            )
+        }
+
+        override fun getItemOffsets(
+            outRect: Rect,
+            view: View,
+            parent: RecyclerView,
+            state: RecyclerView.State
+        ) {
+            if (parent.getChildAdapterPosition(view) == currentBoundary()) {
+                outRect.top = gapPx
+            }
+        }
+
+        override fun onDrawOver(canvas: Canvas, parent: RecyclerView, state: RecyclerView.State) {
+            val boundary = currentBoundary()
+            if (boundary == -1) return
+            val child = parent.layoutManager?.findViewByPosition(boundary) ?: return
+            val label = getString(R.string.everyone_else_label)
+            val x = child.left + (16 * resources.displayMetrics.density)
+            val labelTop = child.top - gapPx
+            canvas.drawText(label, x, labelTop + labelPaint.textSize + (8 * resources.displayMetrics.density), labelPaint)
+            val lineY = child.top - (4 * resources.displayMetrics.density)
+            canvas.drawLine(x, lineY, parent.width - parent.paddingEnd.toFloat(), lineY, linePaint)
         }
     }
 
@@ -468,12 +577,10 @@ class MainActivity : SimpleActivity() {
         conversations: ArrayList<Conversation>,
         cached: Boolean = false,
     ) {
-        val sortedConversations = conversations
-            .sortedWith(
-                compareByDescending<Conversation> {
-                    config.pinnedConversations.contains(it.threadId.toString())
-                }.thenByDescending { it.date }
-            ).toMutableList() as ArrayList<Conversation>
+        val familyFirst = familyFirstSort && mailboxFilter == Mailbox.CONTACTS
+        val sortedConversations = ConversationOrdering.orderConversations(
+            conversations, config.pinnedConversations, familyThreadIds, familyFirst
+        ).toMutableList() as ArrayList<Conversation>
 
         if (cached && config.appRunCount == 1) {
             // there are no cached conversations on the first run so we show the

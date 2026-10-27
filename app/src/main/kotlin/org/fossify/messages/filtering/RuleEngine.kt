@@ -1,5 +1,8 @@
 package org.fossify.messages.filtering
 
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
 import org.fossify.messages.models.FilterRule
 import org.fossify.messages.models.Mailbox
 
@@ -36,34 +39,97 @@ object RuleEngine {
         )
     }
 
-    /** All set conditions on a rule must hold (logical AND). */
+    /**
+     * Whether [rule] matches [facts]. Each set condition contributes one
+     * boolean; how they combine depends on [FilterRule.conditionMode]:
+     * ALL (the historical AND — every set condition must hold) or ANY
+     * (OR across conditions — any one set condition matching is enough).
+     * A rule with no set condition matches everything (catch-all) in
+     * either mode — the long-standing behavior, preserved.
+     *
+     * The keyword condition (revision 9) matches if ANY of the rule's
+     * keywords matches (OR within the keyword set), as a substring or —
+     * when [FilterRule.keywordRegex] is set — as a case-insensitive
+     * regular expression, against the body OR the OCR text (recognized
+     * image text, when OCR ran). An invalid regex never matches and never
+     * throws: filing proceeds as if that keyword were not there.
+     */
     fun matches(rule: FilterRule, facts: MessageFacts): Boolean {
+        val results = ArrayList<Boolean>()
         rule.senderExact?.let {
-            if (!PhoneNumbers.equal(it, facts.sender)) return false
+            results += PhoneNumbers.equal(it, facts.sender)
         }
         rule.senderPattern?.let {
-            if (!PhoneNumbers.matchesPattern(it, facts.sender)) return false
+            results += PhoneNumbers.matchesPattern(it, facts.sender)
         }
         rule.senderContains?.let { needle ->
-            val inNumber = facts.sender.contains(needle, ignoreCase = true)
-            val inName = facts.senderName.contains(needle, ignoreCase = true)
-            if (!inNumber && !inName) return false
+            results += facts.sender.contains(needle, ignoreCase = true) ||
+                facts.senderName.contains(needle, ignoreCase = true)
         }
         rule.senderInContacts?.let {
-            if (it != facts.senderInContacts) return false
+            results += (it == facts.senderInContacts)
         }
         rule.senderTag?.let {
-            if (it !in facts.senderTags) return false
+            results += (it in facts.senderTags)
         }
-        rule.keyword?.let {
-            if (!facts.body.contains(it, ignoreCase = true)) return false
+        val keywords = effectiveKeywords(rule)
+        if (keywords.isNotEmpty()) {
+            results += keywords.any { keyword ->
+                keywordMatches(keyword, facts.body, rule.keywordRegex) ||
+                    keywordMatches(keyword, facts.ocrText, rule.keywordRegex)
+            }
         }
         rule.containsLink?.let {
-            if (it != SenderClassifier.containsLink(facts.body)) return false
+            results += (it == SenderClassifier.containsLink(facts.body))
         }
         rule.senderClass?.let {
-            if (it != SenderClassifier.classify(facts.sender)) return false
+            results += (it == SenderClassifier.classify(facts.sender))
         }
-        return true
+        if (results.isEmpty()) return true
+        return if (rule.conditionMode == CONDITION_MODE_ANY) results.any { it } else results.all { it }
     }
+
+    /** The keywords a rule matches on: the multi-keyword list when set, else the legacy single keyword. */
+    fun effectiveKeywords(rule: FilterRule): List<String> {
+        val raw = rule.keywordsJson
+        if (!raw.isNullOrBlank()) {
+            val parsed = try {
+                json.decodeFromString(ListSerializer(serializer<String>()), raw)
+            } catch (e: Exception) {
+                emptyList()
+            }
+            if (parsed.isNotEmpty()) return parsed
+        }
+        return listOfNotNull(rule.keyword?.takeIf { it.isNotEmpty() })
+    }
+
+    /** Encode a keyword list for storage (the inverse of [effectiveKeywords]). */
+    fun keywordsToJson(keywords: List<String>): String {
+        return json.encodeToString(ListSerializer(serializer<String>()), keywords)
+    }
+
+    /** Compact JSON instance for keyword lists (no pretty printing in the database). */
+    private val json = Json { ignoreUnknownKeys = true }
+
+    /** One keyword against a body: substring, or case-insensitive regex when [isRegex]. Never throws. */
+    fun keywordMatches(keyword: String, body: String, isRegex: Boolean): Boolean {
+        if (keyword.isEmpty()) return false
+        if (!isRegex) return body.contains(keyword, ignoreCase = true)
+        return try {
+            // Bound the input: a pathological pattern against a very long
+            // body must not stall arrival-time filing.
+            Regex(keyword, RegexOption.IGNORE_CASE).containsMatchIn(body.take(REGEX_INPUT_CAP))
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Condition mode: every set condition must hold (the default). */
+    const val CONDITION_MODE_ALL = "ALL"
+
+    /** Condition mode: any one set condition matching is enough. */
+    const val CONDITION_MODE_ANY = "ANY"
+
+    /** Longest body a regex keyword is run against (characters). */
+    const val REGEX_INPUT_CAP = 10_000
 }

@@ -8,6 +8,15 @@ import org.fossify.messages.models.Mailbox
 data class MessageFacts(
     val sender: String,
     val body: String,
+    /**
+     * Text recognized on-device from attached images (revision 9 OCR):
+     * keyword rules match against it exactly like [body], but it is
+     * never stored, never shown, and never logged — it exists only for
+     * this one evaluation. Empty unless OCR ran (non-contact sender,
+     * image attached, empty/short body). Link rules keep reading [body]
+     * only: recognized text must not accidentally trigger link rules.
+     */
+    val ocrText: String = "",
     val senderInContacts: Boolean,
     val senderTags: Set<String> = emptySet(),
     /**

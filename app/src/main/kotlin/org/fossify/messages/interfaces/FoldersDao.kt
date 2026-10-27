@@ -39,6 +39,10 @@ interface FoldersDao {
 
     // Label mappings (consultation order = sort_order)
 
+    /** Revision 9 import: mappings in a file replace the whole set, so the old set goes first. */
+    @Query("DELETE FROM label_mappings")
+    fun deleteAllLabelMappings()
+
     @Query("SELECT * FROM label_mappings ORDER BY sort_order ASC, id ASC")
     fun getAllLabelMappings(): List<LabelMapping>
 

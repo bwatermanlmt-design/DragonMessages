@@ -204,10 +204,47 @@ class FolderViewActivity : SimpleActivity() {
         container.removeAllViews()
         val muted = config.mutedMailboxes
 
-        folders.forEach { folder ->
+        // Revision 9 tree order: top-level folders first (flat default),
+        // each parent followed by its children, indented one step per
+        // level. The visited set keeps corrupt data (cycles, orphans
+        // whose parent is gone) from looping or vanishing: orphans land
+        // at the top level with their own children beneath them.
+        val ordered = ArrayList<Pair<Folder, Int>>()
+        val visited = HashSet<String>()
+        val byParent = folders.groupBy { it.parentId }
+        fun visit(parentId: String?, depth: Int) {
+            byParent[parentId].orEmpty()
+                .sortedWith(compareBy({ it.sortOrder }, { it.id }))
+                .forEach { child ->
+                    if (visited.add(child.id)) {
+                        ordered.add(child to depth)
+                        visit(child.id, depth + 1)
+                    }
+                }
+        }
+        visit(null, 0)
+        folders.sortedWith(compareBy({ it.sortOrder }, { it.id })).forEach { folder ->
+            if (visited.add(folder.id)) {
+                ordered.add(folder to 0)
+                visit(folder.id, 1)
+            }
+        }
+        // One level of nesting indents by 24dp — no dimen dependency.
+        val indentPx = (24 * resources.displayMetrics.density).toInt()
+
+        ordered.forEach { (folder, depth) ->
             val mailbox = Mailbox.customMailboxId(folder.id)
             val row = ItemFolderRowBinding.inflate(layoutInflater, container, false)
+            if (depth > 0) {
+                row.root.setPaddingRelative(
+                    row.root.paddingStart + depth * indentPx,
+                    row.root.paddingTop,
+                    row.root.paddingEnd,
+                    row.root.paddingBottom
+                )
+            }
 
+            row.folderRowIcon.setImageResource(FolderManager.iconRes(folder.image))
             row.folderRowIconHolder.backgroundTintList = ColorStateList.valueOf(folder.color)
             row.folderRowName.text = folder.name +
                 if (mailbox in muted) getString(R.string.folder_silenced_suffix) else ""

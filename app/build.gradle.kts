@@ -155,6 +155,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.process)
     implementation(libs.ez.vcard)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.mlkit.text.recognition)
     implementation(libs.bundles.room)
     ksp(libs.androidx.room.compiler)
     detektPlugins(libs.compose.detekt)

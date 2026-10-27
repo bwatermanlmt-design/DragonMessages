@@ -2,6 +2,7 @@ package org.fossify.messages.receivers
 
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
 import com.bumptech.glide.Glide
 import com.klinker.android.send_message.MmsReceivedReceiver
 import org.fossify.commons.extensions.getMyContactsCursor
@@ -18,7 +19,9 @@ import org.fossify.messages.extensions.shouldUnarchive
 import org.fossify.messages.extensions.showLockerWarningNotification
 import org.fossify.messages.extensions.showReceivedMessageNotification
 import org.fossify.messages.extensions.updateConversationArchivedStatus
+import org.fossify.messages.filtering.OcrGate
 import org.fossify.messages.helpers.FilterEvaluator
+import org.fossify.messages.helpers.MmsOcr
 import org.fossify.messages.helpers.refreshConversations
 import org.fossify.messages.helpers.refreshMessages
 import org.fossify.messages.models.FilterAuditEntry
@@ -83,12 +86,17 @@ class MmsReceiver : MmsReceivedReceiver() {
 
         // The MMS is already stored by the library at this point; the rule
         // engine decides where it files and whether it may notify.
+        // Revision 9 OCR runs first, so keyword rules can catch
+        // image-only texts — but only for strangers with images and
+        // little text, never for contacts, and never past the budget.
+        val ocrText = extractOcrText(context, mms, address)
         val verdict = FilterEvaluator.evaluateIncoming(
             context = context,
             sender = address,
             body = mms.body,
             channel = FilterAuditEntry.CHANNEL_MMS,
-            threadId = mms.threadId
+            threadId = mms.threadId,
+            ocrText = ocrText
         )
 
         when {
@@ -123,6 +131,47 @@ class MmsReceiver : MmsReceivedReceiver() {
         }
         refreshMessages()
         refreshConversations()
+    }
+
+    /**
+     * Recognized text from this MMS's images, for filter matching only.
+     * Empty unless every gate holds (stranger, image attached, empty or
+     * short body); any failure, timeout, or budget exhaustion answers
+     * with what was recognized so far — possibly nothing — and filing
+     * proceeds exactly as if there were no image. The text is never
+     * stored, shown in the notification, or logged: the notification
+     * below still uses the real body.
+     */
+    private fun extractOcrText(context: Context, mms: Message, address: String): String {
+        val attachments = mms.attachment?.attachments ?: return ""
+        val hasImage = attachments.any { it.mimetype.startsWith("image/") }
+        if (!OcrGate.shouldRunOcr(FilterEvaluator.isInContacts(context, address), mms.body, hasImage)) {
+            return ""
+        }
+        val deadline = SystemClock.elapsedRealtime() + OcrGate.TOTAL_BUDGET_MS
+        val texts = ArrayList<String>()
+        attachments.filter { it.mimetype.startsWith("image/") }
+            .take(OcrGate.MAX_IMAGES)
+            .forEach { attachment ->
+                val remaining = deadline - SystemClock.elapsedRealtime()
+                if (remaining <= 0) return@forEach
+                val partUri = try {
+                    when (val uri = attachment.getUri()) {
+                        is Uri -> uri
+                        is String -> Uri.parse(uri)
+                        else -> null
+                    }
+                } catch (e: Exception) {
+                    null
+                } ?: return@forEach
+                val bitmap = try {
+                    MmsOcr.decodePart(context, partUri)
+                } catch (e: Exception) {
+                    null
+                } ?: return@forEach
+                MmsOcr.recognize(bitmap, remaining)?.let { texts += it }
+            }
+        return texts.joinToString("\n")
     }
 
     /** What kind of thing arrived, for the Locker's warning: photo beats video beats text. */
