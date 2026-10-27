@@ -297,6 +297,8 @@
 
                 </LinearLayout>
 
+            </LinearLayout>
+
             <LinearLayout
                 android:id="@+id/mailbox_auth_holder"
                 android:layout_width="match_parent"
@@ -614,8 +616,6 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical" />
-
-            </LinearLayout>
 
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
