@@ -119,7 +119,8 @@ android {
         )
     }
 
-    namespace = project.property("APP_ID").toString()
+    // Dragon Play build: namespace stays on the code package (R imports); applicationId is the Play package.
+    namespace = "org.fossify.messages"
 
     lint {
         checkReleaseBuilds = false
