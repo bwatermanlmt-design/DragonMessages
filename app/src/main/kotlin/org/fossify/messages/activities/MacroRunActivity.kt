@@ -1,6 +1,9 @@
 package org.fossify.messages.activities
 
 import android.os.Bundle
+import androidx.coordinatorlayout.widget.CoordinatorLayout
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import org.fossify.commons.extensions.beVisibleIf
 import org.fossify.commons.extensions.toast
 import org.fossify.commons.extensions.updateTextColors
@@ -42,6 +45,18 @@ class MacroRunActivity : SimpleActivity() {
         val macroId = intent.getLongExtra(MACRO_ID, 0)
 
         setupEdgeToEdge(padBottomImeAndSystem = listOf(binding.macroRunScrollview))
+
+        // Keep the pinned File button clear of the system navigation bar:
+        // the scroll content is padded for system bars by setupEdgeToEdge,
+        // but this button is pinned to the coordinator's bottom edge and is not.
+        ViewCompat.setOnApplyWindowInsetsListener(binding.macroRunCoordinator) { _, insets ->
+            val navBarHeight = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
+            val margin = resources.getDimensionPixelSize(org.fossify.commons.R.dimen.activity_margin)
+            val params = binding.macroFileButton.layoutParams as CoordinatorLayout.LayoutParams
+            params.setMargins(params.leftMargin, params.topMargin, params.rightMargin, margin + navBarHeight)
+            binding.macroFileButton.layoutParams = params
+            insets
+        }
 
         binding.macroFileButton.setOnClickListener {
             fileSelected()
