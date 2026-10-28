@@ -143,6 +143,8 @@
     <string name="everyone_else_label">Everyone else</string>
     <string name="tip_link_title">Buy me a beer</string>
     <string name="tip_link_subtitle">Voluntary tip — opens in your browser</string>
+    <string name="fossify_credit_title">Built on Fossify Messages</string>
+    <string name="fossify_credit_subtitle">Dragon Messages was built on Fossify Messages, free and open-source software. If you like it, consider visiting fossify.org.</string>
     <string name="file_labelled_contacts_here">File contacts with a label here</string>
     <string name="no_label">No label</string>
     <string name="manage_folders">Manage folders</string>

@@ -39,6 +39,7 @@ import org.fossify.messages.extensions.messagesDB
 import org.fossify.messages.helpers.FILE_SIZE_100_KB
 import org.fossify.messages.helpers.FILTER_RULES_EXPORT_EXTENSION
 import org.fossify.messages.helpers.TipLink
+import org.fossify.messages.helpers.FossifyCredit
 import org.fossify.messages.helpers.FilterRuleSet
 import org.fossify.messages.helpers.runRetroactiveFiling
 import org.fossify.messages.helpers.FilterRulesExporter
@@ -128,6 +129,7 @@ class SettingsActivity : SimpleActivity() {
         setupManageFolders()
         setupMacros()
         setupTipLink()
+        setupFossifyCredit()
         setupChangeDateTimeFormat()
         setupFontSize()
         setupShowCharacterCounter()
@@ -347,6 +349,14 @@ class SettingsActivity : SimpleActivity() {
                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(TipLink.TIP_URL))
                 startActivity(intent)
             }
+        }
+    }
+
+    /** Fossify credit row (1.10.7): always visible, opens fossify.org. */
+    private fun setupFossifyCredit() = binding.apply {
+        settingsFossifyCreditHolder.setOnClickListener {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(FossifyCredit.FOSSIFY_URL))
+            startActivity(intent)
         }
     }
 
