@@ -149,6 +149,7 @@ class SettingsActivity : SimpleActivity() {
         setupExportFilterRules()
         setupImportFilterRules()
         setupFileExistingConversations()
+        setupMarkSpamAsRead()
         updateTextColors(binding.settingsNestedScrollview)
 
         if (
@@ -194,6 +195,14 @@ class SettingsActivity : SimpleActivity() {
     private fun setupImportFilterRules() {
         binding.settingsImportFilterRulesHolder.setOnClickListener {
             getRulesContent.launch(arrayOf(messagesFileType))
+        }
+    }
+
+    private fun setupMarkSpamAsRead() = binding.apply {
+        settingsMarkSpamAsRead.isChecked = config.markSpamAsRead
+        settingsMarkSpamAsReadHolder.setOnClickListener {
+            settingsMarkSpamAsRead.toggle()
+            config.markSpamAsRead = settingsMarkSpamAsRead.isChecked
         }
     }
 

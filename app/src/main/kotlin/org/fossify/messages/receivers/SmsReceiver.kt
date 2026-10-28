@@ -14,8 +14,10 @@ import org.fossify.messages.extensions.getConversations
 import org.fossify.messages.extensions.getNameFromAddress
 import org.fossify.messages.extensions.getNotificationBitmap
 import org.fossify.messages.extensions.getThreadId
+import org.fossify.messages.extensions.config
 import org.fossify.messages.extensions.insertNewSMS
 import org.fossify.messages.extensions.insertOrUpdateConversation
+import org.fossify.messages.extensions.markThreadMessagesRead
 import org.fossify.messages.extensions.messagesDB
 import org.fossify.messages.R
 import org.fossify.messages.extensions.shouldUnarchive
@@ -78,6 +80,13 @@ class SmsReceiver : BroadcastReceiver() {
                     storeAsRead = verdict.mailbox == Mailbox.SPAM,
                     suppressNotification = verdict.notificationMuted
                 )
+                // Mark Spam as read (revision 10, when the toggle is on):
+                // the new message is already stored read, but the thread
+                // may carry older unread messages — read the whole thread
+                // so nothing filed to Spam ever surfaces as unread.
+                if (verdict.mailbox == Mailbox.SPAM && appContext.config.markSpamAsRead) {
+                    runCatching { appContext.markThreadMessagesRead(threadId) }
+                }
             } finally {
                 pending.finish()
             }

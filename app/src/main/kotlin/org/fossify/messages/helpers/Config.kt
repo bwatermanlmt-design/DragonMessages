@@ -57,17 +57,48 @@ class Config(context: Context) : BaseConfig(context) {
         get() = prefs.getLong(MMS_FILE_SIZE_LIMIT, FILE_SIZE_200_KB)
         set(mmsFileSizeLimit) = prefs.edit().putLong(MMS_FILE_SIZE_LIMIT, mmsFileSizeLimit).apply()
 
-    var pinnedConversations: Set<String>
-        get() = prefs.getStringSet(PINNED_CONVERSATIONS, HashSet<String>())!!
+    /**
+     * Pinned conversations in the user's order (revision 10): the pinned
+     * section renders in this order, and drag-and-drop reordering writes
+     * it back. Stored as one comma-joined string — a StringSet cannot
+     * keep order. Migrates once from the old StringSet key, then the old
+     * key is dropped.
+     */
+    var pinnedConversations: List<String>
+        get() {
+            if (!prefs.contains(PINNED_CONVERSATIONS_ORDER)) {
+                val legacy = prefs.getStringSet(PINNED_CONVERSATIONS, null)
+                if (legacy != null) {
+                    val migrated = legacy.toList()
+                    prefs.edit()
+                        .putString(PINNED_CONVERSATIONS_ORDER, migrated.joinToString(","))
+                        .remove(PINNED_CONVERSATIONS)
+                        .apply()
+                    return migrated
+                }
+            }
+            return prefs.getString(PINNED_CONVERSATIONS_ORDER, "").orEmpty()
+                .split(",").filter { it.isNotEmpty() }
+        }
         set(pinnedConversations) = prefs.edit()
-            .putStringSet(PINNED_CONVERSATIONS, pinnedConversations).apply()
+            .putString(PINNED_CONVERSATIONS_ORDER, pinnedConversations.distinct().joinToString(",")).apply()
+
+    /**
+     * Mark Spam as read (revision 10): when on — the default — any filing
+     * to Spam also marks the thread read in the provider, so nothing
+     * filed to Spam ever surfaces as unread. When off, filing leaves
+     * read state exactly as it was.
+     */
+    var markSpamAsRead: Boolean
+        get() = prefs.getBoolean(MARK_SPAM_AS_READ, true)
+        set(markSpamAsRead) = prefs.edit().putBoolean(MARK_SPAM_AS_READ, markSpamAsRead).apply()
 
     fun addPinnedConversationByThreadId(threadId: Long) {
-        pinnedConversations = pinnedConversations.plus(threadId.toString())
+        pinnedConversations = (pinnedConversations + threadId.toString()).distinct()
     }
 
     fun addPinnedConversations(conversations: List<Conversation>) {
-        pinnedConversations = pinnedConversations.plus(conversations.map { it.threadId.toString() })
+        pinnedConversations = (pinnedConversations + conversations.map { it.threadId.toString() }).distinct()
     }
 
     fun removePinnedConversationByThreadId(threadId: Long) {
@@ -77,6 +108,14 @@ class Config(context: Context) : BaseConfig(context) {
     fun removePinnedConversations(conversations: List<Conversation>) {
         pinnedConversations =
             pinnedConversations.minus(conversations.map { it.threadId.toString() })
+    }
+
+    /** Move one pinned id within the user's order (drag-and-drop). Out-of-range moves are ignored. */
+    fun movePinnedConversation(fromIndex: Int, toIndex: Int) {
+        val ids = pinnedConversations.toMutableList()
+        if (fromIndex !in ids.indices || toIndex !in ids.indices) return
+        ids.add(toIndex, ids.removeAt(fromIndex))
+        pinnedConversations = ids
     }
 
     var blockedKeywords: Set<String>

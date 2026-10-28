@@ -15,4 +15,7 @@ interface FilterAuditDao {
 
     @Query("SELECT * FROM filter_audit_log ORDER BY timestamp DESC, id DESC LIMIT :limit")
     fun getRecent(limit: Int): List<FilterAuditEntry>
+
+    @Query("SELECT * FROM filter_audit_log WHERE sender = :sender ORDER BY timestamp DESC, id DESC LIMIT 1")
+    fun getLatestForSender(sender: String): FilterAuditEntry?
 }

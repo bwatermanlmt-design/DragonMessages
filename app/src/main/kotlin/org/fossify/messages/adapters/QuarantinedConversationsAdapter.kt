@@ -9,7 +9,9 @@ import org.fossify.messages.R
 import org.fossify.messages.activities.SimpleActivity
 import org.fossify.messages.dialogs.SendToFolderDialog
 import org.fossify.messages.extensions.conversationsDB
+import org.fossify.messages.extensions.filterAuditDB
 import org.fossify.messages.extensions.deleteConversation
+import org.fossify.messages.helpers.FilingReasonText
 import org.fossify.messages.helpers.FilterEvaluator
 import org.fossify.messages.helpers.refreshConversations
 import org.fossify.messages.models.Conversation
@@ -25,7 +27,12 @@ class QuarantinedConversationsAdapter(
 
     override fun getActionMenuId() = R.menu.cab_quarantined_conversations
 
-    override fun prepareActionMode(menu: Menu) {}
+    override fun prepareActionMode(menu: Menu) {
+        // "Why is this here?" is a Spam-list action over one thread: the
+        // thread Ben picked out because he does not want it in Spam.
+        menu.findItem(R.id.cab_filing_reason)?.isVisible =
+            mailbox == Mailbox.SPAM && isOneItemSelected()
+    }
 
     override fun actionItemPressed(id: Int) {
         if (selectedKeys.isEmpty()) {
@@ -36,6 +43,7 @@ class QuarantinedConversationsAdapter(
             R.id.cab_delete -> askConfirmDelete()
             R.id.cab_release -> releaseConversations()
             R.id.cab_block -> askConfirmBlockSenders()
+            R.id.cab_filing_reason -> showFilingReason()
             R.id.cab_send_to_folder -> sendToFolder()
             R.id.cab_select_all -> selectAll()
         }
@@ -59,6 +67,28 @@ class QuarantinedConversationsAdapter(
             activity.runOnUiThread {
                 finishActMode()
                 refreshConversations()
+            }
+        }
+    }
+
+    /**
+     * "Why is this here?" (revision 10): the latest audit entry for the
+     * selected thread's sender, rendered as the rule that moved it —
+     * or, when the thread was moved by hand after the last rule filing,
+     * the hand, never the stale rule name (see [FilingReasonText]).
+     */
+    private fun showFilingReason() {
+        val conversation = getSelectedItems().firstOrNull() ?: return
+        ensureBackgroundThread {
+            val entry = try {
+                activity.filterAuditDB.getLatestForSender(conversation.phoneNumber)
+            } catch (e: Exception) {
+                null
+            }
+            val message = FilingReasonText.describe(activity, conversation, entry)
+            activity.runOnUiThread {
+                ConfirmationDialog(activity, message) {}
+                finishActMode()
             }
         }
     }

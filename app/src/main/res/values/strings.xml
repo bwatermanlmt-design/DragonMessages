@@ -182,6 +182,16 @@
     <string name="macro_yes">Yes</string>
     <string name="macro_no">No</string>
     <string name="macro_contains_link">Message contains a link</string>
+    <string name="macro_replied_to">You have replied to this thread</string>
+    <string name="macro_filed_by_hand">Thread was filed by hand</string>
+    <string name="mark_spam_as_read">Mark Spam as read</string>
+    <string name="block_all_in_spam">Block all messages in Spam</string>
+    <string name="block_all_in_spam_confirmation">Block %1$d senders? Their numbers are blocked permanently.</string>
+    <string name="filing_reason">Why is this here?</string>
+    <string name="filing_reason_text">Filed to %1$s by rule \'%2$s\' on %3$s</string>
+    <string name="filing_reason_default_text">Filed to %1$s by default (no rule matched) on %2$s</string>
+    <string name="filing_reason_hand_moved">This thread was moved here by hand, not by a rule.</string>
+    <string name="no_filing_record">No filing record for this thread yet.</string>
     <string name="macro_target_folder">Target folder</string>
     <string name="macro_automatic">Automatic — also file new messages that match</string>
     <string name="macro_automatic_short">automatic</string>

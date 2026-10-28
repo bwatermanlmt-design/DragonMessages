@@ -72,6 +72,8 @@ class MacroEditorActivity : SimpleActivity() {
             binding.macroClassAny.isChecked = true
             binding.macroContactsEither.isChecked = true
             binding.macroLinkEither.isChecked = true
+            binding.macroRepliedEither.isChecked = true
+            binding.macroHandEither.isChecked = true
             binding.ruleMatchAll.isChecked = true
             binding.macroAutomaticCheckbox.beVisibleIf(false)
             updateTargetLabel()
@@ -110,6 +112,16 @@ class MacroEditorActivity : SimpleActivity() {
                 when (macro.containsLink) {
                     true -> binding.macroLinkYes.isChecked = true
                     else -> binding.macroLinkEither.isChecked = true
+                }
+                when (macro.repliedTo) {
+                    true -> binding.macroRepliedYes.isChecked = true
+                    false -> binding.macroRepliedNo.isChecked = true
+                    null -> binding.macroRepliedEither.isChecked = true
+                }
+                when (macro.manuallyFiled) {
+                    true -> binding.macroHandYes.isChecked = true
+                    false -> binding.macroHandNo.isChecked = true
+                    null -> binding.macroHandEither.isChecked = true
                 }
                 if (macro.conditionMode == RuleEngine.CONDITION_MODE_ANY) {
                     binding.ruleMatchAny.isChecked = true
@@ -194,6 +206,16 @@ class MacroEditorActivity : SimpleActivity() {
             R.id.macro_link_yes -> true
             else -> null
         }
+        val repliedTo = when (binding.macroRepliedGroup.checkedRadioButtonId) {
+            R.id.macro_replied_yes -> true
+            R.id.macro_replied_no -> false
+            else -> null
+        }
+        val manuallyFiled = when (binding.macroHandGroup.checkedRadioButtonId) {
+            R.id.macro_hand_yes -> true
+            R.id.macro_hand_no -> false
+            else -> null
+        }
         val conditionMode = when (binding.ruleMatchGroup.checkedRadioButtonId) {
             R.id.rule_match_any -> RuleEngine.CONDITION_MODE_ANY
             else -> RuleEngine.CONDITION_MODE_ALL
@@ -201,7 +223,8 @@ class MacroEditorActivity : SimpleActivity() {
         val keywordRegex = binding.ruleRegexCheckbox.isChecked
 
         if (senderContains == null && keywords.isEmpty() && senderClass == null &&
-            senderInContacts == null && containsLink == null
+            senderInContacts == null && containsLink == null &&
+            repliedTo == null && manuallyFiled == null
         ) {
             toast(R.string.macro_needs_a_criterion)
             return
@@ -235,6 +258,8 @@ class MacroEditorActivity : SimpleActivity() {
                 keywordRegex = keywordRegex,
                 containsLink = containsLink,
                 senderClass = senderClass,
+                repliedTo = repliedTo,
+                manuallyFiled = manuallyFiled,
                 mailbox = targetMailbox,
                 isMacro = existing?.isMacro ?: false,
                 macroAutomatic = automatic

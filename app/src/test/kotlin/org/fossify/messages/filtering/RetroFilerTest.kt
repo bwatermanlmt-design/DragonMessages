@@ -6,6 +6,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/**
+ * Revision 10 semantics for the retro pass: the rules decide, with no
+ * automatic immunities. Replied-to threads, contacts, and hand-filed
+ * threads are all judged by the rules; only the Locker and blocks are
+ * hard placements. The old immunity tests are rewritten here to assert
+ * the new behaviour, not deleted.
+ */
 class RetroFilerTest {
 
     // Keyword rules the old starter pack used to ship; kept here as an
@@ -124,15 +131,15 @@ class RetroFilerTest {
 
     // endregion
 
-    // region engaged threads: spam-immunity, and invisibility once in Not in Contacts
+    // region replied-to threads are judged by the rules, immunity gone
 
     @Test
-    fun `engaged conversation with spam content falls through to not in contacts`() {
+    fun `engaged conversation with spam content files to spam`() {
         val decision = RetroFiler.decide(
             retro(facts(body = "deal inside! Stop2End"), engaged = true),
             starterRules
         )
-        assertEquals(Mailbox.QUARANTINE, filedMailbox(decision))
+        assertEquals(Mailbox.SPAM, filedMailbox(decision))
     }
 
     @Test
@@ -145,7 +152,7 @@ class RetroFilerTest {
     }
 
     @Test
-    fun `answered conversation in not in contacts is left alone`() {
+    fun `answered conversation in not in contacts is judged by the rules`() {
         val decision = RetroFiler.decide(
             retro(
                 facts(body = "Hi Gerrit! Reply Stop2End to opt out"),
@@ -154,11 +161,11 @@ class RetroFilerTest {
             ),
             starterRules
         )
-        assertEquals(RetroFiler.Decision.Skip(RetroFiler.SkipReason.ENGAGED_IN_QUARANTINE), decision)
+        assertEquals(Mailbox.SPAM, filedMailbox(decision))
     }
 
     @Test
-    fun `answered short code in not in contacts is left alone`() {
+    fun `answered short code in not in contacts is judged by the rules`() {
         val decision = RetroFiler.decide(
             retro(
                 facts(sender = "34291", body = "Power update: all clear"),
@@ -167,11 +174,11 @@ class RetroFilerTest {
             ),
             starterRules
         )
-        assertEquals(RetroFiler.Decision.Skip(RetroFiler.SkipReason.ENGAGED_IN_QUARANTINE), decision)
+        assertEquals(Mailbox.AUTH, filedMailbox(decision))
     }
 
     @Test
-    fun `answered conversation in not in contacts with spam content is left alone`() {
+    fun `answered conversation in not in contacts with spam content files to spam`() {
         val decision = RetroFiler.decide(
             retro(
                 facts(body = "deal inside! Stop2End"),
@@ -180,7 +187,7 @@ class RetroFilerTest {
             ),
             starterRules
         )
-        assertEquals(RetroFiler.Decision.Skip(RetroFiler.SkipReason.ENGAGED_IN_QUARANTINE), decision)
+        assertEquals(Mailbox.SPAM, filedMailbox(decision))
     }
 
     @Test
@@ -193,34 +200,116 @@ class RetroFilerTest {
     }
 
     @Test
-    fun `business labeled contact files to auth`() {
+    fun `business labeled contact files to contacts by the contacts rule`() {
         val decision = RetroFiler.decide(
-            retro(facts(inContacts = true, business = true), currentMailbox = Mailbox.CONTACTS),
+            retro(facts(inContacts = true, business = true), currentMailbox = Mailbox.QUARANTINE),
             starterRules
         )
-        assertEquals(Mailbox.AUTH, filedMailbox(decision))
+        assertEquals(Mailbox.CONTACTS, filedMailbox(decision))
     }
 
     // endregion
 
-    // region protections
+    // region the new conditions: replied-to and hand-filed
+
+    private val handFiledSpamRule = listOf(
+        FilterRule(name = "hand filed to spam", priority = 1, manuallyFiled = true, mailbox = Mailbox.SPAM)
+    )
+
+    private val notHandFiledSpamRule = listOf(
+        FilterRule(name = "not hand filed to spam", priority = 1, manuallyFiled = false, mailbox = Mailbox.SPAM)
+    )
+
+    private val repliedSpamRule = listOf(
+        FilterRule(name = "replied to spam", priority = 1, repliedTo = true, mailbox = Mailbox.SPAM)
+    )
 
     @Test
-    fun `answered manually filed conversation keeps the manual protection`() {
+    fun `rule requiring hand-filed matches a hand-filed thread`() {
+        val decision = RetroFiler.decide(
+            retro(facts(), manuallyFiled = true, currentMailbox = Mailbox.CONTACTS),
+            handFiledSpamRule
+        )
+        assertEquals(Mailbox.SPAM, filedMailbox(decision))
+    }
+
+    @Test
+    fun `rule requiring hand-filed does not match a thread that was not filed by hand`() {
+        // No rule matches, so the thread stays put (not a skip anymore).
+        val decision = RetroFiler.decide(
+            retro(facts(), manuallyFiled = false, currentMailbox = Mailbox.CONTACTS),
+            handFiledSpamRule
+        )
+        assertEquals(RetroFiler.Decision.AlreadyFiled, decision)
+    }
+
+    @Test
+    fun `sender-level filing record counts as hand-filed`() {
+        val familyFolder = Mailbox.customMailboxId("folder-family")
+        val decision = RetroFiler.decide(
+            retro(facts(senderFiled = familyFolder), manuallyFiled = false, currentMailbox = Mailbox.CONTACTS),
+            handFiledSpamRule
+        )
+        assertEquals(Mailbox.SPAM, filedMailbox(decision))
+    }
+
+    @Test
+    fun `rule excluding hand-filed matches a thread that was not filed by hand`() {
+        val decision = RetroFiler.decide(
+            retro(facts(), manuallyFiled = false, currentMailbox = Mailbox.CONTACTS),
+            notHandFiledSpamRule
+        )
+        assertEquals(Mailbox.SPAM, filedMailbox(decision))
+    }
+
+    @Test
+    fun `rule excluding hand-filed does not match a hand-filed thread`() {
+        val decision = RetroFiler.decide(
+            retro(facts(), manuallyFiled = true, currentMailbox = Mailbox.CONTACTS),
+            notHandFiledSpamRule
+        )
+        assertEquals(RetroFiler.Decision.AlreadyFiled, decision)
+    }
+
+    @Test
+    fun `rule requiring replied-to matches an answered thread`() {
+        val decision = RetroFiler.decide(
+            retro(facts(), engaged = true, currentMailbox = Mailbox.CONTACTS),
+            repliedSpamRule
+        )
+        assertEquals(Mailbox.SPAM, filedMailbox(decision))
+    }
+
+    @Test
+    fun `rule requiring replied-to does not match an unanswered thread`() {
+        val decision = RetroFiler.decide(
+            retro(facts(), engaged = false, currentMailbox = Mailbox.CONTACTS),
+            repliedSpamRule
+        )
+        assertEquals(RetroFiler.Decision.AlreadyFiled, decision)
+    }
+
+    // endregion
+
+    // region protections: only the Locker still holds
+
+    @Test
+    fun `answered manually filed conversation with no matching rule stays put`() {
+        // The catch-all agrees with the current mailbox: unchanged, not a skip.
         val decision = RetroFiler.decide(
             retro(facts(), manuallyFiled = true, engaged = true, currentMailbox = Mailbox.QUARANTINE),
             starterRules
         )
-        assertEquals(RetroFiler.Decision.Skip(RetroFiler.SkipReason.MANUALLY_FILED), decision)
+        assertEquals(RetroFiler.Decision.AlreadyFiled, decision)
     }
 
     @Test
-    fun `manually filed conversations are never overridden`() {
+    fun `manually filed conversations are judged by the rules`() {
         val decision = RetroFiler.decide(
             retro(facts(body = "deal inside! Stop2End"), manuallyFiled = true),
             starterRules
         )
-        assertEquals(RetroFiler.Decision.Skip(RetroFiler.SkipReason.MANUALLY_FILED), decision)
+        assertEquals(Mailbox.SPAM, filedMailbox(decision))
     }
 
     @Test
@@ -265,7 +354,6 @@ class RetroFilerTest {
 
     @Test
     fun `blocked answered thread in not in contacts files to spam, not skipped`() {
-        // A block breaks the answered-thread ignore.
         val decision = RetroFiler.decide(
             retro(
                 facts(),
@@ -279,8 +367,8 @@ class RetroFilerTest {
     }
 
     @Test
-    fun `blocked hand-filed thread is still left alone`() {
-        // The retro pass's hand protections order ahead of the block.
+    fun `blocked hand-filed thread files to spam`() {
+        // Hand filing no longer protects against a block: the block wins.
         val decision = RetroFiler.decide(
             retro(
                 facts(),
@@ -290,7 +378,7 @@ class RetroFilerTest {
             ),
             starterRules
         )
-        assertEquals(RetroFiler.Decision.Skip(RetroFiler.SkipReason.MANUALLY_FILED), decision)
+        assertEquals(Mailbox.SPAM, filedMailbox(decision))
     }
 
     @Test
@@ -335,46 +423,42 @@ class RetroFilerTest {
 
     // endregion
 
-    // region revision 7: label homes and sender-level filings in the scan
+    // region revision 7 homes no longer decide: label and sender records are facts, not placements
 
     private val familyFolder = Mailbox.customMailboxId("folder-family")
     private val workFolder = Mailbox.customMailboxId("folder-work")
 
     @Test
-    fun `contact with a label-mapped home is filed to the folder`() {
+    fun `contact with a label-mapped home files to contacts by the contacts rule`() {
         val decision = RetroFiler.decide(
             retro(facts(inContacts = true, labelHome = familyFolder), currentMailbox = Mailbox.QUARANTINE),
             starterRules
         )
-        assertEquals(familyFolder, filedMailbox(decision))
+        assertEquals(Mailbox.CONTACTS, filedMailbox(decision))
     }
 
     @Test
-    fun `relabelled contact is re-homed by the scan`() {
-        // The thread sits in the folder the old label said; the contact's
-        // labels changed, so the scan takes it to the new label's home.
+    fun `label change no longer re-homes a contact without a rule`() {
         val decision = RetroFiler.decide(
             retro(facts(inContacts = true, labelHome = workFolder), currentMailbox = familyFolder),
             starterRules
         )
-        assertEquals(workFolder, filedMailbox(decision))
+        assertEquals(Mailbox.CONTACTS, filedMailbox(decision))
     }
 
     @Test
-    fun `thread away from its sender-filed home is filed home`() {
-        // E.g. the thread was recreated after deletion, landing at the
-        // install default, while the sender's record says Family.
+    fun `thread away from its sender-filed home is judged by the rules`() {
         val decision = RetroFiler.decide(
             retro(facts(senderFiled = familyFolder), currentMailbox = Mailbox.CONTACTS),
             starterRules
         )
-        assertEquals(familyFolder, filedMailbox(decision))
+        assertEquals(Mailbox.QUARANTINE, filedMailbox(decision))
     }
 
     @Test
-    fun `sender filing outranks the answered-thread ignore`() {
-        // Engaged and sitting in Not in Contacts would normally be left
-        // alone — but Ben filed this sender, so the scan takes it home.
+    fun `sender filing record does not move an answered thread`() {
+        // Engaged, sitting in Not in Contacts, with a sender record: the
+        // catch-all agrees with the current mailbox, so nothing moves.
         val decision = RetroFiler.decide(
             retro(
                 facts(senderFiled = familyFolder),
@@ -383,27 +467,25 @@ class RetroFilerTest {
             ),
             starterRules
         )
-        assertEquals(familyFolder, filedMailbox(decision))
+        assertEquals(RetroFiler.Decision.AlreadyFiled, decision)
     }
 
     @Test
-    fun `thread already at its sender-filed home is unchanged`() {
+    fun `thread at its sender-filed home is judged by the rules`() {
         val decision = RetroFiler.decide(
             retro(facts(senderFiled = familyFolder), currentMailbox = familyFolder),
             starterRules
         )
-        assertEquals(RetroFiler.Decision.AlreadyFiled, decision)
+        assertEquals(Mailbox.QUARANTINE, filedMailbox(decision))
     }
 
     @Test
-    fun `non-contact hand-filed to contacts by sender record survives the scan`() {
-        // Ben pulled one stranger thread into My Contacts by hand; the
-        // sender record makes the scan agree it belongs there.
+    fun `non-contact hand-filed to contacts by sender record is judged by the rules`() {
         val decision = RetroFiler.decide(
             retro(facts(senderFiled = Mailbox.CONTACTS), currentMailbox = Mailbox.CONTACTS),
             starterRules
         )
-        assertEquals(RetroFiler.Decision.AlreadyFiled, decision)
+        assertEquals(Mailbox.QUARANTINE, filedMailbox(decision))
     }
 
     // endregion

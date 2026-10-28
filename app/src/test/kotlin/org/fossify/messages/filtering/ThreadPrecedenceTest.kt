@@ -3,8 +3,17 @@ package org.fossify.messages.filtering
 import org.fossify.messages.models.FilterRule
 import org.fossify.messages.models.Mailbox
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
+/**
+ * Revision 10 semantics: the rules decide. There are no automatic
+ * immunities anymore — contacts, replied-to threads, and answered
+ * threads in Not in Contacts are all judged by the rules, and only a
+ * block and the Locker are hard placements. The old immunity tests are
+ * rewritten here to assert the new behaviour, not deleted: each one
+ * names what the rules do now.
+ */
 class ThreadPrecedenceTest {
 
     // Keyword rules the old starter pack used to ship; kept here as an
@@ -14,6 +23,11 @@ class ThreadPrecedenceTest {
         FilterRule(name = "Test keyword to Quarantine", priority = 25, keyword = "Gerrit", mailbox = Mailbox.QUARANTINE)
     )
 
+    /** One rule only, so "no rule matches" is reachable (no catch-all). */
+    private val spamOnlyRules = listOf(
+        FilterRule(name = "Test keyword to Spam", priority = 20, keyword = "Stop2End", mailbox = Mailbox.SPAM)
+    )
+
     private fun facts(
         sender: String = "+14805550137",
         body: String = "hello there",
@@ -21,7 +35,9 @@ class ThreadPrecedenceTest {
         business: Boolean = false,
         tags: Set<String> = emptySet(),
         labelHome: String? = null,
-        senderFiled: String? = null
+        senderFiled: String? = null,
+        repliedTo: Boolean = false,
+        manuallyFiled: Boolean = false
     ) = MessageFacts(
         sender = sender,
         body = body,
@@ -29,7 +45,9 @@ class ThreadPrecedenceTest {
         senderTags = tags,
         businessLabeled = business,
         labelHome = labelHome,
-        senderFiledMailbox = senderFiled
+        senderFiledMailbox = senderFiled,
+        repliedTo = repliedTo,
+        manuallyFiled = manuallyFiled
     )
 
     /** Evaluate the raw verdict, then resolve it through precedence. */
@@ -37,26 +55,35 @@ class ThreadPrecedenceTest {
         current: String?,
         facts: MessageFacts,
         rules: List<FilterRule> = starterRules,
-        engaged: Boolean = false,
-        manuallyFiled: Boolean = false,
         senderBlocked: Boolean = false
     ): RuleVerdict {
         val raw = RuleEngine.evaluate(rules, facts)
         return ThreadPrecedence.resolve(
             currentMailbox = current,
             verdict = raw,
-            facts = facts,
-            rules = rules,
-            engaged = engaged,
-            manuallyFiled = manuallyFiled,
             senderBlocked = senderBlocked
         )
     }
 
-    // region contacts are settled before content rules
+    // region the rules decide: contacts are ordinary rule matches now
 
     @Test
-    fun `contact with stop2end body and no engagement files to contacts`() {
+    fun `contact with stop2end body files to spam when the spam rule outranks the contacts rule`() {
+        val rules = listOf(
+            FilterRule(name = "Spam first", priority = 5, keyword = "Stop2End", mailbox = Mailbox.SPAM)
+        ) + starterRules
+        val verdict = resolve(
+            current = Mailbox.QUARANTINE,
+            facts = facts(body = "Early voting is open! Reply Stop2End to opt out", inContacts = true),
+            rules = rules
+        )
+        assertEquals(Mailbox.SPAM, verdict.mailbox)
+    }
+
+    @Test
+    fun `contact with stop2end body files to contacts by the contacts rule`() {
+        // The starter contacts rule (priority 10) outranks the spam rule
+        // (priority 20): contact protection is rule order now, not immunity.
         val verdict = resolve(
             current = Mailbox.QUARANTINE,
             facts = facts(body = "Early voting is open! Reply Stop2End to opt out", inContacts = true)
@@ -65,7 +92,7 @@ class ThreadPrecedenceTest {
     }
 
     @Test
-    fun `contact with gerrit body files to contacts`() {
+    fun `contact with gerrit body files to contacts by the contacts rule`() {
         val verdict = resolve(
             current = Mailbox.QUARANTINE,
             facts = facts(body = "Hi Gerrit, your brokerage account needs attention", inContacts = true)
@@ -74,65 +101,63 @@ class ThreadPrecedenceTest {
     }
 
     @Test
-    fun `business contact on a long number with stop2end files to auth`() {
+    fun `business contact files to contacts by the contacts rule, not auth`() {
+        // No business rule ships in the starter pack, so the contacts
+        // rule takes it: the old business-to-auth immunity is gone.
         val verdict = resolve(
             current = Mailbox.QUARANTINE,
             facts = facts(body = "Your statement is ready. Stop2End", inContacts = true, business = true)
         )
-        assertEquals(Mailbox.AUTH, verdict.mailbox)
+        assertEquals(Mailbox.CONTACTS, verdict.mailbox)
     }
 
     @Test
-    fun `business contact with a clean body files to auth`() {
+    fun `business contact with a clean body files to contacts by the contacts rule`() {
         val verdict = resolve(
             current = Mailbox.CONTACTS,
             facts = facts(inContacts = true, business = true)
         )
-        assertEquals(Mailbox.AUTH, verdict.mailbox)
+        assertEquals(Mailbox.CONTACTS, verdict.mailbox)
     }
 
     // endregion
 
-    // region participation is spam-immunity, nothing more
+    // region replied-to threads carry no spam-immunity anymore
 
     @Test
-    fun `engaged non-contact with stop2end and gerrit falls through to not in contacts`() {
+    fun `replied-to non-contact with stop2end files to spam`() {
         val verdict = resolve(
             current = Mailbox.CONTACTS,
-            facts = facts(body = "Hi Gerrit! Reply Stop2End to opt out"),
-            engaged = true
+            facts = facts(body = "Hi Gerrit! Reply Stop2End to opt out", repliedTo = true)
+        )
+        assertEquals(Mailbox.SPAM, verdict.mailbox)
+    }
+
+    @Test
+    fun `replied-to short code with stop2end files to spam`() {
+        val verdict = resolve(
+            current = Mailbox.CONTACTS,
+            facts = facts(sender = "34291", body = "Power update. Stop2End", repliedTo = true)
+        )
+        assertEquals(Mailbox.SPAM, verdict.mailbox)
+    }
+
+    @Test
+    fun `replied-to thread takes a not-in-contacts verdict as evaluated`() {
+        val verdict = resolve(
+            current = Mailbox.CONTACTS,
+            facts = facts(body = "Hi Gerrit, your brokerage account needs attention", repliedTo = true)
         )
         assertEquals(Mailbox.QUARANTINE, verdict.mailbox)
     }
 
     @Test
-    fun `engaged short code with stop2end falls through to auth`() {
-        val verdict = resolve(
-            current = Mailbox.CONTACTS,
-            facts = facts(sender = "34291", body = "Power update. Stop2End"),
-            engaged = true
-        )
-        assertEquals(Mailbox.AUTH, verdict.mailbox)
-    }
-
-    @Test
-    fun `engaged thread takes a not-in-contacts verdict as evaluated`() {
-        val verdict = resolve(
-            current = Mailbox.CONTACTS,
-            facts = facts(body = "Hi Gerrit, your brokerage account needs attention"),
-            engaged = true
-        )
-        assertEquals(Mailbox.QUARANTINE, verdict.mailbox)
-    }
-
-    @Test
-    fun `engaged thread in spam leaves spam when the fall-through verdict says so`() {
+    fun `replied-to thread in spam stays in spam by the rule`() {
         val verdict = resolve(
             current = Mailbox.SPAM,
-            facts = facts(body = "deal inside! Stop2End"),
-            engaged = true
+            facts = facts(body = "deal inside! Stop2End", repliedTo = true)
         )
-        assertEquals(Mailbox.QUARANTINE, verdict.mailbox)
+        assertEquals(Mailbox.SPAM, verdict.mailbox)
     }
 
     @Test
@@ -143,10 +168,10 @@ class ThreadPrecedenceTest {
 
     // endregion
 
-    // region services are never people
+    // region the service-class guard is gone
 
     @Test
-    fun `a rule delivering a short code to contacts is corrected to auth`() {
+    fun `a rule delivering a short code to contacts is no longer corrected to auth`() {
         val rules = listOf(
             FilterRule(
                 name = "misguided", priority = 1,
@@ -154,65 +179,11 @@ class ThreadPrecedenceTest {
             )
         )
         val verdict = resolve(current = null, facts = facts(sender = "40404"), rules = rules)
-        assertEquals(Mailbox.AUTH, verdict.mailbox)
-    }
-
-    // endregion
-
-    // region answered threads in Not in Contacts are invisible to the filters
-
-    @Test
-    fun `answered short code in not in contacts stays there`() {
-        val verdict = resolve(
-            current = Mailbox.QUARANTINE,
-            facts = facts(sender = "34291", body = "Power update: all clear"),
-            engaged = true
-        )
-        assertEquals(Mailbox.QUARANTINE, verdict.mailbox)
-    }
-
-    @Test
-    fun `answered thread in not in contacts with stop2end stays there`() {
-        val verdict = resolve(
-            current = Mailbox.QUARANTINE,
-            facts = facts(body = "deal inside! Stop2End"),
-            engaged = true
-        )
-        assertEquals(Mailbox.QUARANTINE, verdict.mailbox)
-    }
-
-    @Test
-    fun `answered thread in not in contacts discards the raw verdict's tag`() {
-        val verdict = resolve(
-            current = Mailbox.QUARANTINE,
-            facts = facts(body = "deal inside! Stop2End"),
-            engaged = true
-        )
-        assertEquals(null, verdict.assignTag)
-    }
-
-    @Test
-    fun `answered contact in not in contacts is brought home`() {
-        val verdict = resolve(
-            current = Mailbox.QUARANTINE,
-            facts = facts(inContacts = true),
-            engaged = true
-        )
         assertEquals(Mailbox.CONTACTS, verdict.mailbox)
     }
 
     @Test
-    fun `answered business contact in not in contacts files to auth`() {
-        val verdict = resolve(
-            current = Mailbox.QUARANTINE,
-            facts = facts(inContacts = true, business = true),
-            engaged = true
-        )
-        assertEquals(Mailbox.AUTH, verdict.mailbox)
-    }
-
-    @Test
-    fun `unanswered short code in not in contacts still files to auth`() {
+    fun `short code files to auth by the short-code rule`() {
         val verdict = resolve(
             current = Mailbox.QUARANTINE,
             facts = facts(sender = "34291", body = "Power update: all clear")
@@ -220,12 +191,60 @@ class ThreadPrecedenceTest {
         assertEquals(Mailbox.AUTH, verdict.mailbox)
     }
 
+    // endregion
+
+    // region answered threads in Not in Contacts are judged by the rules
+
+    @Test
+    fun `answered short code in not in contacts is judged by the rules`() {
+        val verdict = resolve(
+            current = Mailbox.QUARANTINE,
+            facts = facts(sender = "34291", body = "Power update: all clear", repliedTo = true)
+        )
+        assertEquals(Mailbox.AUTH, verdict.mailbox)
+    }
+
+    @Test
+    fun `answered thread in not in contacts with stop2end files to spam`() {
+        val verdict = resolve(
+            current = Mailbox.QUARANTINE,
+            facts = facts(body = "deal inside! Stop2End", repliedTo = true)
+        )
+        assertEquals(Mailbox.SPAM, verdict.mailbox)
+    }
+
+    @Test
+    fun `answered thread in not in contacts keeps the rule verdict's tag`() {
+        val verdict = resolve(
+            current = Mailbox.QUARANTINE,
+            facts = facts(body = "deal inside! Stop2End", repliedTo = true)
+        )
+        assertEquals(StarterRules.TAG_CAMPAIGNS, verdict.assignTag)
+    }
+
+    @Test
+    fun `answered contact in not in contacts files to contacts by the contacts rule`() {
+        val verdict = resolve(
+            current = Mailbox.QUARANTINE,
+            facts = facts(inContacts = true, repliedTo = true)
+        )
+        assertEquals(Mailbox.CONTACTS, verdict.mailbox)
+    }
+
+    @Test
+    fun `answered business contact in not in contacts files to contacts by the contacts rule`() {
+        val verdict = resolve(
+            current = Mailbox.QUARANTINE,
+            facts = facts(inContacts = true, business = true, repliedTo = true)
+        )
+        assertEquals(Mailbox.CONTACTS, verdict.mailbox)
+    }
+
     @Test
     fun `blocked answered thread in not in contacts files to spam`() {
         val verdict = resolve(
             current = Mailbox.QUARANTINE,
-            facts = facts(),
-            engaged = true,
+            facts = facts(repliedTo = true),
             senderBlocked = true
         )
         assertEquals(Mailbox.SPAM, verdict.mailbox)
@@ -233,24 +252,49 @@ class ThreadPrecedenceTest {
 
     // endregion
 
-    // region Ben's hand outranks everything
+    // region no-match semantics: new threads take the default, existing threads stay put
+
+    @Test
+    fun `no matching rule files a brand-new thread to not in contacts`() {
+        val verdict = resolve(
+            current = null,
+            facts = facts(body = "nothing matching here"),
+            rules = spamOnlyRules
+        )
+        assertEquals(Mailbox.QUARANTINE, verdict.mailbox)
+        assertNull(verdict.matchedRule)
+    }
+
+    @Test
+    fun `no matching rule leaves an existing thread where it is`() {
+        val verdict = resolve(
+            current = Mailbox.CONTACTS,
+            facts = facts(body = "nothing matching here"),
+            rules = spamOnlyRules
+        )
+        assertEquals(Mailbox.CONTACTS, verdict.mailbox)
+        assertNull(verdict.matchedRule)
+    }
+
+    @Test
+    fun `no matching rule leaves an existing spam thread in spam`() {
+        val verdict = resolve(
+            current = Mailbox.SPAM,
+            facts = facts(body = "nothing matching here"),
+            rules = spamOnlyRules
+        )
+        assertEquals(Mailbox.SPAM, verdict.mailbox)
+    }
+
+    // endregion
+
+    // region block still outranks, and the Locker still holds
 
     @Test
     fun `blocked sender files to spam even when a contact`() {
         val verdict = resolve(
             current = Mailbox.CONTACTS,
             facts = facts(inContacts = true),
-            senderBlocked = true
-        )
-        assertEquals(Mailbox.SPAM, verdict.mailbox)
-    }
-
-    @Test
-    fun `blocked sender files to spam regardless of manual filing`() {
-        val verdict = resolve(
-            current = Mailbox.AUTH,
-            facts = facts(),
-            manuallyFiled = true,
             senderBlocked = true
         )
         assertEquals(Mailbox.SPAM, verdict.mailbox)
@@ -270,161 +314,106 @@ class ThreadPrecedenceTest {
     }
 
     @Test
-    fun `manually filed thread keeps Ben's filing over the address book`() {
+    fun `blocked locker thread stays in the locker`() {
+        // The Locker outranks even a block, so arrival and retro agree.
         val verdict = resolve(
-            current = Mailbox.AUTH,
-            facts = facts(inContacts = true),
-            manuallyFiled = true
-        )
-        assertEquals(Mailbox.AUTH, verdict.mailbox)
-    }
-
-    // endregion
-
-    // region label-mapped contact homes (revision 7)
-
-    private val familyFolder = Mailbox.customMailboxId("folder-family")
-    private val vendorsFolder = Mailbox.customMailboxId("folder-vendors")
-
-    @Test
-    fun `person contact with a label-mapped home files to the folder`() {
-        val verdict = resolve(
-            current = Mailbox.QUARANTINE,
-            facts = facts(inContacts = true, labelHome = familyFolder)
-        )
-        assertEquals(familyFolder, verdict.mailbox)
-    }
-
-    @Test
-    fun `business contact whose business label is mapped files to the folder`() {
-        val verdict = resolve(
-            current = Mailbox.QUARANTINE,
-            facts = facts(inContacts = true, business = true, labelHome = vendorsFolder)
-        )
-        assertEquals(vendorsFolder, verdict.mailbox)
-    }
-
-    @Test
-    fun `relabelled contact re-homes on re-evaluation`() {
-        // Yesterday the label said Family; Ben relabelled the contact and
-        // the facts now carry a different mapped home — the thread follows.
-        val verdict = resolve(
-            current = familyFolder,
-            facts = facts(inContacts = true, labelHome = vendorsFolder)
-        )
-        assertEquals(vendorsFolder, verdict.mailbox)
-    }
-
-    @Test
-    fun `label home never outranks a hand filing`() {
-        val verdict = resolve(
-            current = Mailbox.QUARANTINE,
-            facts = facts(inContacts = true, labelHome = familyFolder),
-            manuallyFiled = true
-        )
-        assertEquals(Mailbox.QUARANTINE, verdict.mailbox)
-    }
-
-    // endregion
-
-    // region sender-level filings (revision 7): the sender belongs where Ben put it
-
-    @Test
-    fun `sender filed to contacts with no existing thread files to contacts`() {
-        // The thread was deleted after the filing; the record belongs to
-        // the number, so its next arrival still files home.
-        val verdict = resolve(
-            current = null,
-            facts = facts(senderFiled = Mailbox.CONTACTS)
-        )
-        assertEquals(Mailbox.CONTACTS, verdict.mailbox)
-    }
-
-    @Test
-    fun `sender filed to a custom folder files there on arrival`() {
-        val verdict = resolve(
-            current = Mailbox.QUARANTINE,
-            facts = facts(senderFiled = familyFolder)
-        )
-        assertEquals(familyFolder, verdict.mailbox)
-    }
-
-    @Test
-    fun `a later move updates the filing and the next arrival follows it`() {
-        val verdict = resolve(
-            current = familyFolder,
-            facts = facts(senderFiled = vendorsFolder)
-        )
-        assertEquals(vendorsFolder, verdict.mailbox)
-    }
-
-    @Test
-    fun `sender filing beats a label-mapped home`() {
-        val verdict = resolve(
-            current = Mailbox.QUARANTINE,
-            facts = facts(inContacts = true, labelHome = familyFolder, senderFiled = Mailbox.AUTH)
-        )
-        assertEquals(Mailbox.AUTH, verdict.mailbox)
-    }
-
-    @Test
-    fun `blocked beats a sender filing`() {
-        val verdict = resolve(
-            current = familyFolder,
-            facts = facts(senderFiled = familyFolder),
+            current = Mailbox.LOCKER,
+            facts = facts(),
             senderBlocked = true
         )
-        assertEquals(Mailbox.SPAM, verdict.mailbox)
+        assertEquals(Mailbox.LOCKER, verdict.mailbox)
     }
 
     @Test
-    fun `non-contact hand-filed into contacts stays in contacts`() {
-        // Ben's keep-one-thread case: a stranger pulled out of Not in
-        // Contacts by hand. No contact exists anywhere in this picture,
-        // and none is needed for the placement to stick.
+    fun `locker thread keeps the locker`() {
         val verdict = resolve(
-            current = Mailbox.CONTACTS,
-            facts = facts(body = "Hi Gerrit! Reply Stop2End to opt out", senderFiled = Mailbox.CONTACTS),
-            engaged = true
+            current = Mailbox.LOCKER,
+            facts = facts(body = "deal inside! Stop2End", repliedTo = true)
         )
-        assertEquals(Mailbox.CONTACTS, verdict.mailbox)
-    }
-
-    @Test
-    fun `short code hand-filed to contacts is not corrected by the service guard`() {
-        // The guard applies to engine verdicts, never to Ben's hand.
-        val verdict = resolve(
-            current = null,
-            facts = facts(sender = "34291", senderFiled = Mailbox.CONTACTS)
-        )
-        assertEquals(Mailbox.CONTACTS, verdict.mailbox)
-    }
-
-    @Test
-    fun `short code hand-filed to a custom folder stays there`() {
-        val verdict = resolve(
-            current = Mailbox.QUARANTINE,
-            facts = facts(sender = "34291", senderFiled = familyFolder)
-        )
-        assertEquals(familyFolder, verdict.mailbox)
+        assertEquals(Mailbox.LOCKER, verdict.mailbox)
     }
 
     @Test
     fun `thread in the locker stays in the locker despite a sender filing`() {
         val verdict = resolve(
             current = Mailbox.LOCKER,
-            facts = facts(senderFiled = familyFolder)
+            facts = facts(senderFiled = Mailbox.customMailboxId("folder-family"))
         )
         assertEquals(Mailbox.LOCKER, verdict.mailbox)
     }
 
     // endregion
 
+    // region hand filing no longer protects, and label/sender homes no longer decide
+
+    @Test
+    fun `hand-filed thread is moved by a matching rule`() {
+        val verdict = resolve(
+            current = Mailbox.AUTH,
+            facts = facts(body = "deal inside! Stop2End", manuallyFiled = true)
+        )
+        assertEquals(Mailbox.SPAM, verdict.mailbox)
+    }
+
+    @Test
+    fun `hand-filed thread with no matching rule stays put`() {
+        val verdict = resolve(
+            current = Mailbox.AUTH,
+            facts = facts(body = "nothing matching here", manuallyFiled = true),
+            rules = spamOnlyRules
+        )
+        assertEquals(Mailbox.AUTH, verdict.mailbox)
+    }
+
+    @Test
+    fun `label-mapped home no longer moves a contact without a rule`() {
+        val verdict = resolve(
+            current = Mailbox.QUARANTINE,
+            facts = facts(inContacts = true, labelHome = Mailbox.customMailboxId("folder-family"))
+        )
+        assertEquals(Mailbox.CONTACTS, verdict.mailbox)
+    }
+
+    @Test
+    fun `sender filing record no longer moves a thread without a rule`() {
+        val verdict = resolve(
+            current = Mailbox.QUARANTINE,
+            facts = facts(senderFiled = Mailbox.customMailboxId("folder-family"))
+        )
+        assertEquals(Mailbox.QUARANTINE, verdict.mailbox)
+    }
+
+    @Test
+    fun `blocked beats a sender filing`() {
+        val verdict = resolve(
+            current = Mailbox.customMailboxId("folder-family"),
+            facts = facts(senderFiled = Mailbox.customMailboxId("folder-family")),
+            senderBlocked = true
+        )
+        assertEquals(Mailbox.SPAM, verdict.mailbox)
+    }
+
+    @Test
+    fun `short code hand-filed to contacts is judged by the rules`() {
+        val verdict = resolve(
+            current = null,
+            facts = facts(sender = "34291", senderFiled = Mailbox.CONTACTS)
+        )
+        assertEquals(Mailbox.AUTH, verdict.mailbox)
+    }
+
+    // endregion
+
     // region automatic macros (revision 7): rules with a friendlier face
 
-    private fun macroRule(mailbox: String, keyword: String? = null, senderContains: String? = null) = FilterRule(
+    private fun macroRule(
+        mailbox: String,
+        keyword: String? = null,
+        senderContains: String? = null,
+        priority: Int = 15
+    ) = FilterRule(
         name = "Macro",
-        priority = 15,
+        priority = priority,
         keyword = keyword,
         senderContains = senderContains,
         mailbox = mailbox,
@@ -434,24 +423,24 @@ class ThreadPrecedenceTest {
 
     @Test
     fun `automatic macro files a non-contact arrival to its folder`() {
-        val rules = starterRules + macroRule(familyFolder, keyword = "rent")
+        val rules = starterRules + macroRule(Mailbox.customMailboxId("folder-family"), keyword = "rent")
         val verdict = resolve(
             current = null,
             facts = facts(body = "Your rent is due Friday"),
             rules = rules
         )
-        assertEquals(familyFolder, verdict.mailbox)
+        assertEquals(Mailbox.customMailboxId("folder-family"), verdict.mailbox)
     }
 
     @Test
-    fun `automatic macro does not move a contact arrival`() {
-        val rules = starterRules + macroRule(familyFolder, keyword = "rent")
+    fun `automatic macro outranking the contacts rule moves a contact arrival`() {
+        val rules = starterRules + macroRule(Mailbox.customMailboxId("folder-family"), keyword = "rent", priority = 5)
         val verdict = resolve(
             current = null,
             facts = facts(body = "Your rent is due Friday", inContacts = true),
             rules = rules
         )
-        assertEquals(Mailbox.CONTACTS, verdict.mailbox)
+        assertEquals(Mailbox.customMailboxId("folder-family"), verdict.mailbox)
     }
 
     @Test
@@ -463,16 +452,6 @@ class ThreadPrecedenceTest {
             rules = rules
         )
         assertEquals(Mailbox.SPAM, verdict.mailbox)
-    }
-
-    @Test
-    fun `locker thread keeps the locker`() {
-        val verdict = resolve(
-            current = Mailbox.LOCKER,
-            facts = facts(body = "deal inside! Stop2End"),
-            engaged = true
-        )
-        assertEquals(Mailbox.LOCKER, verdict.mailbox)
     }
 
     // endregion

@@ -11,6 +11,8 @@ import android.graphics.Rect
 import android.graphics.drawable.Icon
 import android.graphics.drawable.LayerDrawable
 import android.view.View
+import android.view.MotionEvent
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import android.os.Bundle
 import android.provider.Telephony
@@ -569,8 +571,82 @@ class MainActivity : SimpleActivity() {
             if (areSystemAnimationsEnabled) {
                 binding.conversationsList.scheduleLayoutAnimation()
             }
+            setupPinDrag()
         }
         return currAdapter as ConversationsAdapter
+    }
+
+    private var pinDragHelper: ItemTouchHelper? = null
+
+    /**
+     * Drag-to-reorder within the pinned section (revision 10). Long-press
+     * already opens selection mode, so a drag starts from a touch-down on
+     * a pinned row's pin icon instead. The pinned block is always the
+     * top rows, so adapter positions map directly onto the user's pin
+     * order; every move persists immediately, and the separator offsets
+     * are invalidated on drop (the "Everyone else" gap is reserved at
+     * layout time but its boundary is recomputed at draw time — a list
+     * change between the two left a stale gap).
+     */
+    private fun setupPinDrag() {
+        if (pinDragHelper != null) return
+        val callback = object : ItemTouchHelper.SimpleCallback(
+            ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0
+        ) {
+            override fun getMovementFlags(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder
+            ): Int {
+                val pinnedCount = config.pinnedConversations.size
+                return if (viewHolder.bindingAdapterPosition < pinnedCount) {
+                    makeMovementFlags(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0)
+                } else {
+                    0
+                }
+            }
+
+            override fun onMove(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
+            ): Boolean {
+                val from = viewHolder.bindingAdapterPosition
+                val to = target.bindingAdapterPosition
+                val pinnedCount = config.pinnedConversations.size
+                if (from >= pinnedCount || to >= pinnedCount) return false
+                config.movePinnedConversation(from, to)
+                getOrCreateConversationsAdapter().notifyItemMoved(from, to)
+                return true
+            }
+
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {}
+
+            override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
+                super.clearView(recyclerView, viewHolder)
+                recyclerView.invalidateItemDecorations()
+            }
+        }
+        pinDragHelper = ItemTouchHelper(callback).also {
+            it.attachToRecyclerView(binding.conversationsList)
+        }
+        binding.conversationsList.addOnItemTouchListener(object : RecyclerView.OnItemTouchListener {
+            override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
+                if (e.action != MotionEvent.ACTION_DOWN) return false
+                val child = rv.findChildViewUnder(e.x, e.y) ?: return false
+                val holder = rv.getChildViewHolder(child)
+                val pinIcon = child.findViewById<View>(R.id.pin_indicator) ?: return false
+                if (pinIcon.visibility != View.VISIBLE) return false
+                val rect = Rect()
+                pinIcon.getGlobalVisibleRect(rect)
+                if (!rect.contains(e.rawX.toInt(), e.rawY.toInt())) return false
+                pinDragHelper?.startDrag(holder)
+                return false
+            }
+
+            override fun onTouchEvent(rv: RecyclerView, e: MotionEvent) {}
+
+            override fun onRequestDisallowInterceptTouchEvent(disallow: Boolean) {}
+        })
     }
 
     private fun setupConversations(
@@ -597,6 +673,11 @@ class MainActivity : SimpleActivity() {
                     if (!cached) {
                         showOrHidePlaceholder(currentList.isEmpty())
                     }
+                    // Recompute the separator offsets on every list
+                    // commit: the gap is reserved at layout time but its
+                    // boundary is recomputed at draw time, and a list
+                    // change between the two left a stale gap.
+                    binding.conversationsList.invalidateItemDecorations()
                 }
             }
         } catch (_: Exception) {

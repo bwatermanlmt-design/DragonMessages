@@ -28,12 +28,16 @@ class RuleEngineTest {
         sender: String = "+14805550137",
         body: String = "hello there",
         inContacts: Boolean = false,
-        tags: Set<String> = emptySet()
+        tags: Set<String> = emptySet(),
+        repliedTo: Boolean = false,
+        manuallyFiled: Boolean = false
     ) = MessageFacts(
         sender = sender,
         body = body,
         senderInContacts = inContacts,
-        senderTags = tags
+        senderTags = tags,
+        repliedTo = repliedTo,
+        manuallyFiled = manuallyFiled
     )
 
     // region starter pack
@@ -510,6 +514,95 @@ class RuleEngineTest {
         assertFalse(rule.keywordRegex)
         assertEquals("hello", rule.toEntity().keyword)
         assertEquals(listOf("hello"), RuleEngine.effectiveKeywords(rule.toEntity()))
+    }
+
+    // region revision 10 conditions: replied-to and hand-filed
+
+    @Test
+    fun `replied-to condition matches only answered threads`() {
+        val rule = FilterRule(name = "replied", priority = 1, repliedTo = true, mailbox = Mailbox.SPAM)
+        assertTrue(RuleEngine.matches(rule, facts(repliedTo = true)))
+        assertFalse(RuleEngine.matches(rule, facts(repliedTo = false)))
+    }
+
+    @Test
+    fun `replied-to condition false matches only unanswered threads`() {
+        val rule = FilterRule(name = "unanswered", priority = 1, repliedTo = false, mailbox = Mailbox.SPAM)
+        assertTrue(RuleEngine.matches(rule, facts(repliedTo = false)))
+        assertFalse(RuleEngine.matches(rule, facts(repliedTo = true)))
+    }
+
+    @Test
+    fun `hand-filed condition matches only hand-filed threads`() {
+        val rule = FilterRule(name = "hand", priority = 1, manuallyFiled = true, mailbox = Mailbox.SPAM)
+        assertTrue(RuleEngine.matches(rule, facts(manuallyFiled = true)))
+        assertFalse(RuleEngine.matches(rule, facts(manuallyFiled = false)))
+    }
+
+    @Test
+    fun `hand-filed condition false matches only threads not filed by hand`() {
+        val rule = FilterRule(name = "not hand", priority = 1, manuallyFiled = false, mailbox = Mailbox.SPAM)
+        assertTrue(RuleEngine.matches(rule, facts(manuallyFiled = false)))
+        assertFalse(RuleEngine.matches(rule, facts(manuallyFiled = true)))
+    }
+
+    @Test
+    fun `null replied-to and hand-filed conditions do not constrain the match`() {
+        val rule = FilterRule(
+            name = "keyword either way", priority = 1, keyword = "vote",
+            repliedTo = null, manuallyFiled = null, mailbox = Mailbox.SPAM
+        )
+        assertTrue(RuleEngine.matches(rule, facts(body = "please vote", repliedTo = true, manuallyFiled = true)))
+        assertTrue(RuleEngine.matches(rule, facts(body = "please vote", repliedTo = false, manuallyFiled = false)))
+        assertFalse(RuleEngine.matches(rule, facts(body = "hello", repliedTo = true, manuallyFiled = true)))
+    }
+
+    @Test
+    fun `replied-to combines with other conditions under ALL`() {
+        val rule = FilterRule(
+            name = "replied vote", priority = 1, keyword = "vote", repliedTo = true,
+            conditionMode = RuleEngine.CONDITION_MODE_ALL, mailbox = Mailbox.SPAM
+        )
+        assertTrue(RuleEngine.matches(rule, facts(body = "please vote", repliedTo = true)))
+        assertFalse(RuleEngine.matches(rule, facts(body = "please vote", repliedTo = false)))
+        assertFalse(RuleEngine.matches(rule, facts(body = "hello", repliedTo = true)))
+    }
+
+    @Test
+    fun `replied-to combines with other conditions under ANY`() {
+        val rule = FilterRule(
+            name = "replied or vote", priority = 1, keyword = "vote", repliedTo = true,
+            conditionMode = RuleEngine.CONDITION_MODE_ANY, mailbox = Mailbox.SPAM
+        )
+        assertTrue(RuleEngine.matches(rule, facts(body = "please vote", repliedTo = false)))
+        assertTrue(RuleEngine.matches(rule, facts(body = "hello", repliedTo = true)))
+        assertFalse(RuleEngine.matches(rule, facts(body = "hello", repliedTo = false)))
+    }
+
+    @Test
+    fun `new conditions survive an export and reimport round trip`() {
+        val rule = FilterRule(
+            name = "conditions", priority = 1, keyword = "vote",
+            repliedTo = true, manuallyFiled = false, mailbox = Mailbox.SPAM
+        )
+        val ruleSet = listOf(rule).toRuleSet(emptyList())
+        val text = FilterRulesExporter.json.encodeToString(FilterRuleSet.serializer(), ruleSet)
+        val parsed = FilterRulesImporter.parseRuleSet(text.byteInputStream())
+        assertEquals(ruleSet, parsed)
+        val roundTripped = parsed!!.rules.single().toEntity()
+        assertEquals(true, roundTripped.repliedTo)
+        assertEquals(false, roundTripped.manuallyFiled)
+    }
+
+    @Test
+    fun `an old file without the new conditions parses with nulls`() {
+        val text = """{"version": 1, "rules": [{"name": "old", "mailbox": "spam", "keyword": "hello"}]}"""
+        val parsed = FilterRulesImporter.parseRuleSet(text.byteInputStream())
+        val rule = parsed!!.rules.single()
+        assertNull(rule.repliedTo)
+        assertNull(rule.manuallyFiled)
+        assertNull(rule.toEntity().repliedTo)
+        assertNull(rule.toEntity().manuallyFiled)
     }
 
     // endregion

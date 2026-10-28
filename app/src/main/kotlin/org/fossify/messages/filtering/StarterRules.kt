@@ -6,9 +6,9 @@ import org.fossify.messages.models.Mailbox
 /**
  * The starter rule pack, seeded on first run and repaired to the current
  * version by the seed migration (see FilterRuleSeeder). The pack is
- * deliberately generic: contacts are settled first (ThreadPrecedence
- * then routes business-labeled contacts to Auth & Services and makes
- * contacts immune to everything below), then sender class, then the
+ * deliberately generic: contacts first (an ordinary rule, like any
+ * other — revision 10 removed the old contact immunity, so a
+ * higher-priority rule can outrank it), then sender class, then the
  * default. Anything person-specific — keywords, tags, blocks — belongs
  * in rules the user creates, never in the shipped pack.
  *
@@ -26,7 +26,7 @@ object StarterRules {
     /**
      * Reserved sender tag: a number the user blocked permanently. The tag is the
      * app's own blocked-numbers record — it belongs to the number, survives
-     * thread deletion, and (via ThreadPrecedence step 0) files every future
+     * thread deletion, and (via ThreadPrecedence) files every future
      * message from the number straight to Spam until the user unblocks it.
      */
     const val TAG_BLOCKED = "blocked"

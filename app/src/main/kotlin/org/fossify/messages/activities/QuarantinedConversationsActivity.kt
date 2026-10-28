@@ -14,12 +14,15 @@ import org.fossify.commons.extensions.getProperTextColor
 import org.fossify.commons.extensions.hideKeyboard
 import org.fossify.commons.extensions.viewBinding
 import org.fossify.commons.helpers.NavigationIcon
+import org.fossify.commons.dialogs.ConfirmationDialog
+import org.fossify.commons.extensions.toast
 import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.messages.R
 import org.fossify.messages.adapters.QuarantinedConversationsAdapter
 import org.fossify.messages.databinding.ActivityQuarantinedConversationsBinding
 import org.fossify.messages.extensions.config
 import org.fossify.messages.extensions.conversationsDB
+import org.fossify.messages.helpers.FilterEvaluator
 import org.fossify.messages.helpers.THREAD_ID
 import org.fossify.messages.helpers.THREAD_TITLE
 import org.fossify.messages.helpers.runRetroactiveFiling
@@ -69,6 +72,9 @@ class QuarantinedConversationsActivity : SimpleActivity() {
 
     private fun setupOptionsMenu() {
         binding.quarantineToolbar.inflateMenu(R.menu.quarantine_menu)
+        // The bulk block only makes sense on the Spam tab; the tabs
+        // below reveal it when Spam is selected.
+        binding.quarantineToolbar.menu.findItem(R.id.block_all_in_spam)?.isVisible = false
         binding.quarantineToolbar.setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId) {
                 R.id.view_filter_log -> {
@@ -86,7 +92,48 @@ class QuarantinedConversationsActivity : SimpleActivity() {
                     true
                 }
 
+                R.id.block_all_in_spam -> {
+                    askConfirmBlockAllInSpam()
+                    true
+                }
+
                 else -> false
+            }
+        }
+    }
+
+    /**
+     * Bulk block from Spam (revision 10): block every sender with a
+     * thread currently in Spam, through the same permanent block path as
+     * blocking one sender. One confirm dialog names the sender count
+     * before anything runs; the rows stay (they are already in Spam),
+     * only their state changes.
+     */
+    private fun askConfirmBlockAllInSpam() {
+        ensureBackgroundThread {
+            val spamThreads = try {
+                conversationsDB.getByMailbox(Mailbox.SPAM)
+            } catch (e: Exception) {
+                emptyList()
+            }
+            val senders = spamThreads.map { it.phoneNumber }.filter { it.isNotBlank() }.distinct()
+            runOnUiThread {
+                if (senders.isEmpty()) {
+                    toast(R.string.no_spam_conversations)
+                    return@runOnUiThread
+                }
+                ConfirmationDialog(
+                    activity = this,
+                    message = getString(R.string.block_all_in_spam_confirmation, senders.size)
+                ) {
+                    ensureBackgroundThread {
+                        spamThreads.forEach {
+                            FilterEvaluator.blockNumber(this, it.phoneNumber)
+                            conversationsDB.updateMailboxManuallyFiled(it.threadId, Mailbox.SPAM)
+                        }
+                        runOnUiThread { loadConversations() }
+                    }
+                }
             }
         }
     }
@@ -98,6 +145,8 @@ class QuarantinedConversationsActivity : SimpleActivity() {
             addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
                 override fun onTabSelected(tab: TabLayout.Tab) {
                     currentMailbox = if (tab.position == 0) Mailbox.QUARANTINE else Mailbox.SPAM
+                    binding.quarantineToolbar.menu.findItem(R.id.block_all_in_spam)?.isVisible =
+                        currentMailbox == Mailbox.SPAM
                     binding.conversationsList.adapter = null
                     loadConversations()
                 }

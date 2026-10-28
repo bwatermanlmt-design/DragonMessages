@@ -25,8 +25,6 @@ object RetroactiveFiler {
         val filedToQuarantine: Int = 0,
         val filedToSpam: Int = 0,
         val noInboundSkipped: Int = 0,
-        val manuallyFiledSkipped: Int = 0,
-        val engagedInQuarantineSkipped: Int = 0,
         val lockerSkipped: Int = 0,
         val unchanged: Int = 0,
     ) {
@@ -51,12 +49,6 @@ object RetroactiveFiler {
                 is FilterEvaluator.RetroOutcome.Skipped -> when (outcome.reason) {
                     RetroFiler.SkipReason.NO_INBOUND ->
                         summary.copy(noInboundSkipped = summary.noInboundSkipped + 1)
-
-                    RetroFiler.SkipReason.MANUALLY_FILED ->
-                        summary.copy(manuallyFiledSkipped = summary.manuallyFiledSkipped + 1)
-
-                    RetroFiler.SkipReason.ENGAGED_IN_QUARANTINE ->
-                        summary.copy(engagedInQuarantineSkipped = summary.engagedInQuarantineSkipped + 1)
 
                     RetroFiler.SkipReason.LOCKER -> summary.copy(lockerSkipped = summary.lockerSkipped + 1)
                 }
@@ -97,12 +89,6 @@ private fun SimpleActivity.retroSummaryMessage(summary: RetroactiveFiler.Summary
     }
     if (summary.noInboundSkipped > 0) {
         lines += "${getString(R.string.skipped_no_inbound)}: ${summary.noInboundSkipped}"
-    }
-    if (summary.manuallyFiledSkipped > 0) {
-        lines += "${getString(R.string.skipped_manually_filed)}: ${summary.manuallyFiledSkipped}"
-    }
-    if (summary.engagedInQuarantineSkipped > 0) {
-        lines += "${getString(R.string.skipped_answered)}: ${summary.engagedInQuarantineSkipped}"
     }
     if (summary.lockerSkipped > 0) {
         lines += "${getString(R.string.skipped_locker)}: ${summary.lockerSkipped}"

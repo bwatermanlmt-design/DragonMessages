@@ -3,22 +3,23 @@ package org.fossify.messages.filtering
 import org.fossify.messages.models.Conversation
 
 /**
- * The conversation list order (revision 9): pins on top for the
- * hand-picked few, then — only when family-first sorting is on — family
- * threads, then everything else, newest first within each section. With
- * family-first off, the order is exactly the old one: pins, then date.
- * Pure and unit-tested: the activity only feeds it lists and sets.
+ * The conversation list order (revision 9, pins ordered in revision 10):
+ * pins on top in the user's order, then — only when family-first sorting
+ * is on — family threads, then everything else, newest first within each
+ * section. With family-first off, the order is pins (user order), then
+ * date. Pure and unit-tested: the activity only feeds it lists.
  */
 object ConversationOrdering {
 
     fun orderConversations(
         conversations: List<Conversation>,
-        pinnedIds: Set<String>,
+        pinnedIds: List<String>,
         familyThreadIds: Set<Long>,
         familyFirst: Boolean
     ): List<Conversation> {
+        val pinIndex = pinnedIds.withIndex().associate { it.value to it.index }
         return conversations.sortedWith(
-            compareByDescending<Conversation> { it.threadId.toString() in pinnedIds }
+            compareBy<Conversation> { pinIndex[it.threadId.toString()] ?: Int.MAX_VALUE }
                 .thenByDescending { familyFirst && it.threadId in familyThreadIds }
                 .thenByDescending { it.date }
         )
@@ -33,7 +34,7 @@ object ConversationOrdering {
      */
     fun separatorIndex(
         ordered: List<Conversation>,
-        pinnedIds: Set<String>,
+        pinnedIds: List<String>,
         familyThreadIds: Set<Long>,
         familyFirst: Boolean
     ): Int {

@@ -46,7 +46,7 @@ import org.fossify.messages.models.SenderTags
         LabelMapping::class,
         SenderFiling::class
     ],
-    version = 16
+    version = 17
 )
 @TypeConverters(Converters::class)
 abstract class MessagesDatabase : RoomDatabase() {
@@ -97,6 +97,7 @@ abstract class MessagesDatabase : RoomDatabase() {
                             .addMigrations(MIGRATION_13_14)
                             .addMigrations(MIGRATION_14_15)
                             .addMigrations(MIGRATION_15_16)
+                            .addMigrations(MIGRATION_16_17)
                             .build()
                     }
                 }
@@ -264,6 +265,18 @@ abstract class MessagesDatabase : RoomDatabase() {
                     execSQL("ALTER TABLE filter_rules ADD COLUMN `sender_contains` TEXT")
                     execSQL("ALTER TABLE filter_rules ADD COLUMN `is_macro` INTEGER NOT NULL DEFAULT 0")
                     execSQL("ALTER TABLE filter_rules ADD COLUMN `macro_automatic` INTEGER NOT NULL DEFAULT 0")
+                }
+            }
+        }
+
+        private val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.apply {
+                    // Revision 10 rules: the "Have replied to" and
+                    // "Filed by hand" conditions. Nullable with no
+                    // default: existing rules keep null (any).
+                    execSQL("ALTER TABLE filter_rules ADD COLUMN replied_to INTEGER")
+                    execSQL("ALTER TABLE filter_rules ADD COLUMN manually_filed INTEGER")
                 }
             }
         }

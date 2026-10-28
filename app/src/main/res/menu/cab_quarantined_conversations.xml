@@ -16,6 +16,11 @@
         android:title="@string/block_sender"
         app:showAsAction="ifRoom" />
     <item
+        android:id="@+id/cab_filing_reason"
+        android:showAsAction="never"
+        android:title="@string/filing_reason"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/cab_send_to_folder"
         android:showAsAction="never"
         android:title="@string/send_to_folder"

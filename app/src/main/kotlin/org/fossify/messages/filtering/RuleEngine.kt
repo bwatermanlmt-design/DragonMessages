@@ -10,8 +10,9 @@ import org.fossify.messages.models.Mailbox
  *
  * Rules are considered in ascending priority order (ties broken by id);
  * disabled rules are skipped and the first matching rule wins. If no rule
- * matches, the built-in default applies: Not in Contacts. The raw verdict
- * is then tempered by [ThreadPrecedence], which owns the final semantics.
+ * matches, the verdict carries no rule, and [ThreadPrecedence] files a
+ * brand-new thread to Not in Contacts while leaving an existing thread
+ * where it is.
  */
 object RuleEngine {
 
@@ -82,6 +83,12 @@ object RuleEngine {
         }
         rule.senderClass?.let {
             results += (it == SenderClassifier.classify(facts.sender))
+        }
+        rule.repliedTo?.let {
+            results += (it == facts.repliedTo)
+        }
+        rule.manuallyFiled?.let {
+            results += (it == facts.manuallyFiled)
         }
         if (results.isEmpty()) return true
         return if (rule.conditionMode == CONDITION_MODE_ANY) results.any { it } else results.all { it }

@@ -13,8 +13,10 @@ import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.extensions.getConversations
 import org.fossify.messages.extensions.getMMS
 import org.fossify.messages.extensions.getLatestMMS
+import org.fossify.messages.extensions.config
 import org.fossify.messages.extensions.getNameFromAddress
 import org.fossify.messages.extensions.insertOrUpdateConversation
+import org.fossify.messages.extensions.markThreadMessagesRead
 import org.fossify.messages.extensions.shouldUnarchive
 import org.fossify.messages.extensions.showLockerWarningNotification
 import org.fossify.messages.extensions.showReceivedMessageNotification
@@ -126,6 +128,12 @@ class MmsReceiver : MmsReceivedReceiver() {
         val conversation = context.getConversations(mms.threadId).firstOrNull() ?: return
         runCatching { context.insertOrUpdateConversation(conversation) }
         runCatching { context.conversationsDB.updateMailbox(mms.threadId, verdict.mailbox) }
+        // Mark Spam as read (revision 10, when the toggle is on): unlike
+        // SMS arrivals, an MMS is already stored by the library, so a
+        // Spam filing on its own would leave it unread.
+        if (verdict.mailbox == Mailbox.SPAM && context.config.markSpamAsRead) {
+            runCatching { context.markThreadMessagesRead(mms.threadId) }
+        }
         if (context.shouldUnarchive()) {
             context.updateConversationArchivedStatus(mms.threadId, false)
         }

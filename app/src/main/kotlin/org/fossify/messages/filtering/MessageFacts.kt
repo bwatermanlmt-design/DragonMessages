@@ -37,19 +37,38 @@ data class MessageFacts(
      * filing record (revision 7): a manual placement belongs to the
      * sender, so it decides the home of every thread from this number —
      * present, future, and recreated after deletion — until he moves the
-     * sender again. Null when the sender has no such record. Consulted by
-     * [ThreadPrecedence] at the manual tier, above the address book.
+     * sender again. Null when the sender has no such record. The arrival
+     * path and the retro pass fold this record into the hand-filed fact
+     * (see [manuallyFiled]): a sender-level record counts as a hand
+     * filing for rule conditions.
      */
     val senderFiledMailbox: String? = null,
     /**
      * The contact's label-mapped home (revision 7): the folder an
      * address-book label mapping assigns to this sender, resolved from
      * the sender's labels by [LabelHomes]. Null when no mapped label
-     * applies; [ThreadPrecedence] then falls back to the ordinary
-     * contact homes (Auth & Services for businesses, My Contacts for
-     * people). Only meaningful when [senderInContacts] is true.
+     * applies. Informational since revision 10: placement no longer
+     * consults it — a rule targeting a folder is how a label home is
+     * expressed. Only meaningful when [senderInContacts] is true.
      */
     val labelHome: String? = null,
+    /**
+     * Ben has sent a message in this thread (revision 10): the
+     * "Have replied to" rule condition reads this fact. It is filled
+     * in by the caller that knows the thread — the arrival path and
+     * the retro pass — and defaults to false for context-free
+     * evaluations, where no thread is in view.
+     */
+    val repliedTo: Boolean = false,
+    /**
+     * The thread was filed by hand (revision 10): the "Filed by hand"
+     * rule condition reads this fact. A thread counts as hand-filed
+     * when its thread-level flag is set OR a sender-level filing
+     * record exists for its sender; the caller that knows the thread
+     * folds both into this one fact. Defaults to false for
+     * context-free evaluations.
+     */
+    val manuallyFiled: Boolean = false,
 )
 
 /** The outcome of evaluating the rule set against a message. */

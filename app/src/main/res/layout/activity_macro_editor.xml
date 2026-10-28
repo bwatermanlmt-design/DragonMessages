@@ -203,6 +203,74 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/medium_margin"
                 android:alpha="0.65"
+                android:text="@string/macro_replied_to"
+                android:textSize="@dimen/normal_text_size" />
+
+            <RadioGroup
+                android:id="@+id/macro_replied_group"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <org.fossify.commons.views.MyCompatRadioButton
+                    android:id="@+id/macro_replied_either"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/macro_either" />
+
+                <org.fossify.commons.views.MyCompatRadioButton
+                    android:id="@+id/macro_replied_yes"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/macro_yes" />
+
+                <org.fossify.commons.views.MyCompatRadioButton
+                    android:id="@+id/macro_replied_no"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/macro_no" />
+
+            </RadioGroup>
+
+            <org.fossify.commons.views.MyTextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/medium_margin"
+                android:alpha="0.65"
+                android:text="@string/macro_filed_by_hand"
+                android:textSize="@dimen/normal_text_size" />
+
+            <RadioGroup
+                android:id="@+id/macro_hand_group"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <org.fossify.commons.views.MyCompatRadioButton
+                    android:id="@+id/macro_hand_either"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/macro_either" />
+
+                <org.fossify.commons.views.MyCompatRadioButton
+                    android:id="@+id/macro_hand_yes"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/macro_yes" />
+
+                <org.fossify.commons.views.MyCompatRadioButton
+                    android:id="@+id/macro_hand_no"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/macro_no" />
+
+            </RadioGroup>
+
+            <org.fossify.commons.views.MyTextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/medium_margin"
+                android:alpha="0.65"
                 android:text="@string/rule_match_mode"
                 android:textSize="@dimen/normal_text_size" />
 

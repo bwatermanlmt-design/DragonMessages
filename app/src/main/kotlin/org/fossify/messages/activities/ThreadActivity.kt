@@ -115,7 +115,9 @@ import org.fossify.messages.dialogs.SendToFolderDialog
 import org.fossify.messages.extensions.clearExpiredScheduledMessages
 import org.fossify.messages.extensions.config
 import org.fossify.messages.extensions.conversationsDB
+import org.fossify.messages.extensions.filterAuditDB
 import org.fossify.messages.extensions.copyToUri
+import org.fossify.messages.helpers.FilingReasonText
 import org.fossify.messages.extensions.createTemporaryThread
 import org.fossify.messages.extensions.deleteConversation
 import org.fossify.messages.extensions.deleteMessage
@@ -377,6 +379,7 @@ class ThreadActivity : SimpleActivity() {
             findItem(R.id.manage_people).isVisible = !isSpecialNumber() && !isRecycleBin
             findItem(R.id.mark_as_unread).isVisible = threadItems.isNotEmpty() && !isRecycleBin
             findItem(R.id.send_to_folder).isVisible = conversation != null && !isRecycleBin
+        findItem(R.id.filing_reason).isVisible = conversation != null && !isRecycleBin
 
             // allow saving number in cases when we don't have it stored yet
             findItem(R.id.add_number_to_contact).isVisible =
@@ -440,6 +443,7 @@ class ThreadActivity : SimpleActivity() {
     private fun handleMenuItemAction(menuItem: MenuItem): Boolean {
         when (menuItem.itemId) {
             R.id.block_number -> blockNumber()
+            R.id.filing_reason -> showFilingReason()
             R.id.delete -> askConfirmDelete()
             R.id.restore -> askConfirmRestoreAll()
             R.id.archive -> archiveConversation()
@@ -1219,6 +1223,22 @@ class ThreadActivity : SimpleActivity() {
         SendToFolderDialog(this, listOf(conv), includeLocker = false) {
             refreshConversations()
             finish()
+        }
+    }
+
+    /** Per-thread filing reason (revision 10): the latest audit entry for this thread's sender. */
+    private fun showFilingReason() {
+        val thread = conversation ?: return
+        ensureBackgroundThread {
+            val entry = try {
+                filterAuditDB.getLatestForSender(thread.phoneNumber)
+            } catch (e: Exception) {
+                null
+            }
+            val message = FilingReasonText.describe(this, thread, entry)
+            runOnUiThread {
+                ConfirmationDialog(this, message) {}
+            }
         }
     }
 

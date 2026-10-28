@@ -41,6 +41,13 @@ data class FilterRule(
     @ColumnInfo(name = "keyword_regex", defaultValue = "0") var keywordRegex: Boolean = false,
     @ColumnInfo(name = "contains_link") var containsLink: Boolean? = null,
     @ColumnInfo(name = "sender_class") var senderClass: String? = null,
+    // Revision 10: two more optional conditions. Null means "does not
+    // constrain the match", exactly like the other Boolean conditions:
+    // repliedTo reads whether Ben has sent a message in the thread,
+    // manuallyFiled reads whether the thread was filed by hand (thread
+    // flag or sender-level record). Existing rules keep null (any).
+    @ColumnInfo(name = "replied_to") var repliedTo: Boolean? = null,
+    @ColumnInfo(name = "manually_filed") var manuallyFiled: Boolean? = null,
 
     // Action.
     @ColumnInfo(name = "mailbox") var mailbox: String,

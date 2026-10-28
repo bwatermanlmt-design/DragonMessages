@@ -571,6 +571,21 @@
 
             </RelativeLayout>
 
+            <RelativeLayout
+                android:id="@+id/settings_mark_spam_as_read_holder"
+                style="@style/SettingsHolderSwitchStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.commons.views.MyMaterialSwitch
+                    android:id="@+id/settings_mark_spam_as_read"
+                    style="@style/SettingsSwitchStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/mark_spam_as_read" />
+
+            </RelativeLayout>
+
             <!-- "Buy me a beer" (revision 9): a quiet row at the end of
                  Settings. Hidden while TipLink.TIP_URL is blank. -->
             <RelativeLayout
