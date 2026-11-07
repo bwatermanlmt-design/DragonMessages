@@ -26,4 +26,6 @@
     <color name="folder_action_new_accent">#1E7A74</color>
     <color name="folder_action_manage_accent">#3B4A8C</color>
     <color name="folder_action_macros_accent">#7A3B69</color>
+    <color name="folder_action_export_accent">#8A6D1B</color>
+    <color name="folder_action_suggest_accent">#2E6B4F</color>
 </resources>

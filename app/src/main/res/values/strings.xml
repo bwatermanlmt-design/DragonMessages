@@ -111,7 +111,7 @@
     <string name="skipped_locker">In the Locker, left alone</string>
     <string name="already_filed">Already filed correctly</string>
     <string name="mailboxes">Mailboxes</string>
-    <string name="folder_view_hint">Long-press a folder to silence its notifications</string>
+    <string name="folder_view_hint">Long-press a folder for options — move it, or silence its notifications</string>
     <string name="mailbox_contacts_subtitle">People in your address book</string>
     <string name="mailbox_auth_subtitle">Banks, codes and services</string>
     <string name="mailbox_quarantine_subtitle">Senders who are not in your contacts</string>
@@ -211,8 +211,14 @@
     <string name="rule_keyword_regex">Treat keywords as patterns (regex)</string>
     <string name="rule_target_hint">Spam filters out silently; folders sort.</string>
     <string name="rules_import">Import rules</string>
+    <string name="rules_import_subtitle">Pick a rule file — it replaces the current rules</string>
     <string name="rules_export">Export rules</string>
+    <string name="rules_export_subtitle">Save the current rules to a file</string>
     <string name="rules_subtitle">Rules filter out to Spam or sort to folders. A rule fires on new messages; run it to file existing conversations.</string>
+    <!-- Landing page: the pattern seeker is not built yet, so its row says so plainly. -->
+    <string name="suggest_rules">Suggest rules</string>
+    <string name="suggest_rules_subtitle">Propose rules from your Spam folder — you pick which become rules</string>
+    <string name="suggest_rules_coming_soon">Suggest rules is coming soon</string>
     <!-- Recycle bin -->
     <string name="restore">Restore</string>
     <string name="restore_all_messages">Restore all messages</string>
@@ -258,6 +264,7 @@
     <string name="messages">Messages</string>
     <string name="keywords">Keywords</string>
     <string name="export_messages">Export messages</string>
+    <string name="export_messages_subtitle">Save all messages to a file</string>
     <string name="export_sms">Export SMS</string>
     <string name="export_mms">Export MMS</string>
     <string name="import_messages">Import messages</string>

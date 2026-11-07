@@ -207,4 +207,15 @@ class Config(context: Context) : BaseConfig(context) {
         get() = prefs.getStringSet(MUTED_MAILBOXES, emptySet())!!.toSet()
         set(mutedMailboxes) = prefs.edit()
             .putStringSet(MUTED_MAILBOXES, mutedMailboxes).apply()
+
+    /**
+     * Ben's order for the Folders section on the landing page
+     * (comma-joined mailbox ids: system mailboxes or `folder:<id>`).
+     * Empty means never customized — the default order applies.
+     */
+    var folderSectionOrder: List<String>
+        get() = prefs.getString(FOLDER_SECTION_ORDER, "")!!
+            .split(",").filter { it.isNotEmpty() }
+        set(folderSectionOrder) = prefs.edit()
+            .putString(FOLDER_SECTION_ORDER, folderSectionOrder.joinToString(",")).apply()
 }
