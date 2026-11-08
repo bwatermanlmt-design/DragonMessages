@@ -1390,9 +1390,17 @@ fun Context.clearExpiredScheduledMessages(threadId: Long, messagesToDelete: List
             messagesDB.delete(msg.id)
         }
         if (messages.filterNot { it.isScheduled && it.millis() < cutoff }.isEmpty()) {
-            // delete empty temporary thread
+            // delete empty temporary thread — never a locked one: its
+            // messages live only encrypted in the Locker, so an empty
+            // provider/Room message list is its normal state, not a
+            // deletion.
             val conversation = conversationsDB.getConversationWithThreadId(threadId)
-            if (conversation != null && conversation.isScheduled) {
+            val isLocked = try {
+                lockedThreadsDB.get(threadId) != null
+            } catch (_: Exception) {
+                false
+            }
+            if (conversation != null && conversation.isScheduled && !isLocked) {
                 conversationsDB.deleteThreadId(threadId)
             }
         }

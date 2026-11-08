@@ -71,6 +71,7 @@ import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.extensions.getConversations
 import org.fossify.messages.extensions.getMessages
 import org.fossify.messages.extensions.insertOrUpdateConversation
+import org.fossify.messages.extensions.lockedThreadsDB
 import org.fossify.messages.extensions.messagesDB
 import org.fossify.messages.helpers.FolderManager
 import org.fossify.messages.helpers.MAILBOX_FILTER
@@ -433,7 +434,15 @@ class MainActivity : SimpleActivity() {
 
                 val isTemporaryThread = cachedConversation.isScheduled
                 val isConversationDeleted = !conversations.map { it.threadId }.contains(threadId)
-                if (isConversationDeleted && !isTemporaryThread) {
+                // A locked thread has no provider rows by design — its
+                // messages live only encrypted in the Locker — so the
+                // provider list never contains it. That is not a deletion.
+                val isLocked = try {
+                    lockedThreadsDB.get(threadId) != null
+                } catch (_: Exception) {
+                    false
+                }
+                if (isConversationDeleted && !isTemporaryThread && !isLocked) {
                     conversationsDB.deleteThreadId(threadId)
                 }
 
