@@ -45,6 +45,7 @@ import org.fossify.messages.helpers.runRetroactiveFiling
 import org.fossify.messages.helpers.FilterRulesExporter
 import org.fossify.messages.helpers.RuleSetStore
 import org.fossify.messages.helpers.FilterRulesImporter
+import org.fossify.messages.helpers.LockerGate
 import org.fossify.messages.helpers.FILE_SIZE_1_MB
 import org.fossify.messages.helpers.FILE_SIZE_200_KB
 import org.fossify.messages.helpers.FILE_SIZE_2_MB
@@ -150,6 +151,7 @@ class SettingsActivity : SimpleActivity() {
         setupImportFilterRules()
         setupFileExistingConversations()
         setupMarkSpamAsRead()
+        setupLockerGate()
         updateTextColors(binding.settingsNestedScrollview)
 
         if (
@@ -166,6 +168,7 @@ class SettingsActivity : SimpleActivity() {
             binding.settingsArchivedMessagesLabel,
             binding.settingsRecycleBinLabel,
             binding.settingsSecurityLabel,
+            binding.settingsLockerLabel,
             binding.settingsMigratingLabel
         ).forEach {
             it.setTextColor(getProperPrimaryColor())
@@ -203,6 +206,79 @@ class SettingsActivity : SimpleActivity() {
         settingsMarkSpamAsReadHolder.setOnClickListener {
             settingsMarkSpamAsRead.toggle()
             config.markSpamAsRead = settingsMarkSpamAsRead.isChecked
+        }
+    }
+
+    /**
+     * The Locker's gate (revision 11): device unlock or an app-only
+     * code, plus the export opt-in. Changing the method or the code
+     * first requires authenticating with the current method, so a hand
+     * on the unlocked phone cannot quietly switch the gate.
+     */
+    private fun setupLockerGate() = binding.apply {
+        val refreshRows = {
+            val isCode = config.lockerGateMethod == LockerGate.METHOD_CODE
+            settingsLockerGate.text = getString(
+                R.string.locker_gate_method
+            ) + ": " + getString(
+                if (isCode) R.string.locker_gate_code else R.string.locker_gate_device
+            )
+            settingsLockerCodeHolder.beVisibleIf(isCode)
+            settingsLockerCode.text = getString(
+                if (LockerGate.hasCode(config)) {
+                    R.string.locker_change_code
+                } else {
+                    R.string.locker_set_code_row
+                }
+            )
+            settingsExportLocked.isChecked = config.exportLockedMessages
+        }
+        refreshRows()
+
+        settingsLockerGateHolder.setOnClickListener {
+            LockerGate.authenticate(this@SettingsActivity) {
+                val items = arrayListOf(
+                    RadioItem(0, getString(R.string.locker_gate_device)),
+                    RadioItem(1, getString(R.string.locker_gate_code))
+                )
+                val checked = if (config.lockerGateMethod == LockerGate.METHOD_CODE) 1 else 0
+                RadioGroupDialog(
+                    this@SettingsActivity,
+                    items,
+                    checked,
+                    R.string.locker_gate_method
+                ) { selected ->
+                    if (selected as Int == 1) {
+                        if (LockerGate.hasCode(config)) {
+                            config.lockerGateMethod = LockerGate.METHOD_CODE
+                            refreshRows()
+                        } else {
+                            LockerGate.showSetCodeDialog(this@SettingsActivity) { code ->
+                                LockerGate.setCode(config, code)
+                                config.lockerGateMethod = LockerGate.METHOD_CODE
+                                refreshRows()
+                            }
+                        }
+                    } else {
+                        config.lockerGateMethod = LockerGate.METHOD_DEVICE
+                        refreshRows()
+                    }
+                }
+            }
+        }
+
+        settingsLockerCodeHolder.setOnClickListener {
+            LockerGate.authenticate(this@SettingsActivity) {
+                LockerGate.showSetCodeDialog(this@SettingsActivity) { code ->
+                    LockerGate.setCode(config, code)
+                    refreshRows()
+                }
+            }
+        }
+
+        settingsExportLockedHolder.setOnClickListener {
+            settingsExportLocked.toggle()
+            config.exportLockedMessages = settingsExportLocked.isChecked
         }
     }
 

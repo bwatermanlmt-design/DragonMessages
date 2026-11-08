@@ -7,6 +7,7 @@ import org.fossify.commons.dialogs.ConfirmationDialog
 import org.fossify.commons.extensions.copyToClipboard
 import org.fossify.commons.extensions.launchActivityIntent
 import org.fossify.commons.extensions.notificationManager
+import org.fossify.commons.extensions.toast
 import org.fossify.commons.helpers.KEY_PHONE
 import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.commons.views.MyRecyclerView
@@ -24,6 +25,7 @@ import org.fossify.messages.extensions.markThreadMessagesUnread
 import org.fossify.messages.extensions.renameConversation
 import org.fossify.messages.extensions.updateConversationArchivedStatus
 import org.fossify.messages.helpers.FilterEvaluator
+import org.fossify.messages.helpers.LockerManager
 import org.fossify.messages.helpers.refreshConversations
 import org.fossify.messages.messaging.isShortCodeWithLetters
 import org.fossify.messages.models.Conversation
@@ -174,17 +176,50 @@ class ConversationsAdapter(
         val conversationsToMove =
             currentList.filter { selectedKeys.contains(it.hashCode()) } as ArrayList<Conversation>
         ensureBackgroundThread {
-            conversationsToMove.forEach {
-                FilterEvaluator.applyManualFiling(activity, it, targetMailbox)
+            // The Locker is not a label: moving in encrypts the thread
+            // and deletes it from the shared database, and moving out
+            // restores it where it came from. A failed lock or unlock
+            // leaves the thread exactly where it was.
+            val moved = ArrayList<Conversation>()
+            var failed = false
+            conversationsToMove.forEach { conversation ->
+                val ok = when {
+                    targetMailbox == Mailbox.LOCKER && conversation.mailbox != Mailbox.LOCKER ->
+                        LockerManager(activity).lockThread(conversation.threadId)
+
+                    conversation.mailbox == Mailbox.LOCKER && targetMailbox != Mailbox.LOCKER ->
+                        LockerManager(activity).unlockThread(conversation.threadId)
+
+                    else -> {
+                        FilterEvaluator.applyManualFiling(activity, conversation, targetMailbox)
+                        true
+                    }
+                }
+                if (ok) {
+                    moved.add(conversation)
+                } else {
+                    failed = true
+                }
             }
 
             val newList = try {
-                currentList.toMutableList().apply { removeAll(conversationsToMove) }
+                currentList.toMutableList().apply { removeAll(moved) }
             } catch (ignored: Exception) {
                 currentList.toMutableList()
             }
 
             activity.runOnUiThread {
+                if (failed) {
+                    activity.toast(
+                        activity.getString(
+                            if (targetMailbox == Mailbox.LOCKER) {
+                                R.string.locker_lock_failed
+                            } else {
+                                R.string.locker_unlock_failed
+                            }
+                        )
+                    )
+                }
                 if (newList.none { selectedKeys.contains(it.hashCode()) }) {
                     refreshConversations()
                     finishActMode()

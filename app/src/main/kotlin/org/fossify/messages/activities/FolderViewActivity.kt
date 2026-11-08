@@ -3,12 +3,8 @@ package org.fossify.messages.activities
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
-import androidx.core.content.ContextCompat
 import org.fossify.commons.dialogs.ConfirmationDialog
 import org.fossify.commons.dialogs.RadioGroupDialog
 import org.fossify.commons.extensions.adjustAlpha
@@ -35,6 +31,7 @@ import org.fossify.messages.helpers.FilterRulesExporter
 import org.fossify.messages.helpers.FilterRulesImporter
 import org.fossify.messages.helpers.FolderManager
 import org.fossify.messages.helpers.FolderSectionOrder
+import org.fossify.messages.helpers.LockerGate
 import org.fossify.messages.helpers.MAILBOX_FILTER
 import org.fossify.messages.helpers.RuleSetStore
 import org.fossify.messages.models.Folder
@@ -569,47 +566,11 @@ class FolderViewActivity : SimpleActivity() {
     }
 
     private fun unlockLockerThenOpen() {
-        val prompt = BiometricPrompt(
-            this,
-            ContextCompat.getMainExecutor(this),
-            object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    super.onAuthenticationSucceeded(result)
-                    openMailbox(Mailbox.LOCKER)
-                }
-
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    super.onAuthenticationError(errorCode, errString)
-                    // Cancelling just returns to the folder list; real errors are worth a word.
-                    if (errorCode != BiometricPrompt.ERROR_USER_CANCELED &&
-                        errorCode != BiometricPrompt.ERROR_NEGATIVE_BUTTON
-                    ) {
-                        toast(errString.toString())
-                    }
-                }
-            }
-        )
-
-        val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle(getString(R.string.unlock_locker))
-            .setSubtitle(getString(R.string.locker_subtitle))
-            .apply {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    setAllowedAuthenticators(
-                        BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                            BiometricManager.Authenticators.DEVICE_CREDENTIAL
-                    )
-                } else {
-                    // Combining biometric and device credential in one call is
-                    // an API 30+ ability; older versions take the legacy flag.
-                    @Suppress("DEPRECATION")
-                    setDeviceCredentialAllowed(true)
-                    setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_WEAK)
-                }
-            }
-            .build()
-
-        prompt.authenticate(promptInfo)
+        // The gate is the user's choice: device unlock, or the app-only
+        // code. Either way, opening the Locker runs it first.
+        LockerGate.authenticate(this) {
+            openMailbox(Mailbox.LOCKER)
+        }
     }
 
     private companion object {

@@ -20,7 +20,10 @@ import org.fossify.messages.R
 import org.fossify.messages.activities.SimpleActivity
 import org.fossify.messages.databinding.DialogExportMessagesBinding
 import org.fossify.messages.extensions.config
+import org.fossify.messages.helpers.LockerManager
 import org.fossify.messages.helpers.MessagesReader
+import org.fossify.messages.models.MmsBackup
+import org.fossify.messages.models.SmsBackup
 
 class ExportMessagesDialog(
     private val activity: SimpleActivity,
@@ -93,7 +96,19 @@ class ExportMessagesDialog(
                     getSms = config.exportSms,
                     getMms = config.exportMms
                 ) { messagesToExport ->
-                    if (messagesToExport.isEmpty()) {
+                    // The Locker's export opt-in (Settings): locked messages
+                    // are excluded by default. When on, they join the
+                    // export decrypted, in the clear — under the same
+                    // SMS/MMS type flags as everything else.
+                    val allMessages = messagesToExport.toMutableList()
+                    if (config.exportLockedMessages) {
+                        val locked = LockerManager(activity).getAllLockedBackups()
+                        allMessages += locked.filter {
+                            (it is SmsBackup && config.exportSms) ||
+                                (it is MmsBackup && config.exportMms)
+                        }
+                    }
+                    if (allMessages.isEmpty()) {
                         activity.toast(org.fossify.commons.R.string.no_entries_for_exporting)
                         dismiss()
                         return@getMessagesToExport
@@ -101,7 +116,7 @@ class ExportMessagesDialog(
                     val json = Json { encodeDefaults = true }
                     activity.contentResolver.openOutputStream(uri)!!.buffered()
                         .use { outputStream ->
-                            json.encodeToStream(messagesToExport, outputStream)
+                            json.encodeToStream(allMessages, outputStream)
                         }
                     success = true
                     activity.toast(org.fossify.commons.R.string.exporting_successful)

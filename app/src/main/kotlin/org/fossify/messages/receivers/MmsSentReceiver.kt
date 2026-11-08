@@ -12,6 +12,7 @@ import android.widget.Toast
 import org.fossify.commons.extensions.showErrorToast
 import org.fossify.commons.extensions.toast
 import org.fossify.messages.extensions.deleteMessage
+import org.fossify.messages.helpers.LockerManager
 import org.fossify.messages.helpers.refreshConversations
 import org.fossify.messages.helpers.refreshMessages
 import org.fossify.messages.messaging.getMmsSendingError
@@ -48,6 +49,14 @@ class MmsSentReceiver : SendStatusReceiver() {
         // In case of resent message, delete original to prevent duplication
         if (originalResentMessageId != -1L) {
             context.deleteMessage(originalResentMessageId, true)
+        }
+
+        // A sent MMS in a locked thread is isolated now that its box is
+        // final (SENT/FAILED), so the stored copy carries the real state.
+        runCatching {
+            uri.lastPathSegment?.toLongOrNull()?.let { messageId ->
+                LockerManager(context).lockSentMessage(messageId, isMMS = true)
+            }
         }
 
         val filePath = intent.getStringExtra(EXTRA_FILE_PATH)

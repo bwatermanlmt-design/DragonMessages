@@ -6,7 +6,9 @@ import android.provider.Telephony.Sms
 import android.util.Base64
 import com.google.android.mms.pdu_alt.PduHeaders
 import kotlinx.serialization.json.Json
+import org.fossify.commons.extensions.getLongValue
 import org.fossify.commons.extensions.notificationManager
+import org.fossify.commons.extensions.queryCursor
 import org.fossify.commons.models.PhoneNumber
 import org.fossify.commons.models.SimpleContact
 import org.fossify.messages.extensions.conversationsDB
@@ -103,6 +105,7 @@ class LockerManager(private val context: Context) {
             deleteThreadFromProvider(threadId)
             context.messagesDB.deleteThreadMessages(threadId)
             context.conversationsDB.updateMailboxManuallyFiled(threadId, Mailbox.LOCKER)
+            context.conversationsDB.clearSnippet(threadId)
             context.notificationManager.cancel(threadId.hashCode())
             true
         } catch (e: Exception) {
@@ -168,11 +171,66 @@ class LockerManager(private val context: Context) {
 
             context.lockedMessagesDB.insert(row)
             context.deleteMessage(messageId, isMMS)
+            context.conversationsDB.clearSnippet(threadId)
             true
         } catch (e: Exception) {
             e.printStackTrace()
             false
         }
+    }
+
+    /**
+     * Isolate one just-sent message, finding its thread from the
+     * provider row. The sent-status receivers call this: it is the
+     * choke point for every in-app send (thread view, scheduled send,
+     * quick reply), and it runs after the send status is final, so the
+     * stored copy carries the real SENT/FAILED state.
+     */
+    fun lockSentMessage(messageId: Long, isMMS: Boolean): Boolean {
+        val threadId = threadIdForProviderMessage(messageId, isMMS) ?: return false
+        return lockMessage(messageId, isMMS, threadId)
+    }
+
+    /** Sweep a locked thread's provider rows into the store (safety net). */
+    fun sweepThread(threadId: Long): Int {
+        if (!isThreadLocked(threadId)) {
+            return 0
+        }
+        val reader = MessagesReader(context)
+        var locked = 0
+        reader.getSmsBackupsForThread(threadId).forEach { (id, _) ->
+            if (context.lockedMessagesDB.getById(id, false) == null &&
+                lockMessage(id, isMMS = false, threadId)
+            ) {
+                locked++
+            }
+        }
+        reader.getMmsBackupsForThread(threadId).forEach { (id, _) ->
+            if (context.lockedMessagesDB.getById(id, true) == null &&
+                lockMessage(id, isMMS = true, threadId)
+            ) {
+                locked++
+            }
+        }
+        return locked
+    }
+
+    private fun threadIdForProviderMessage(messageId: Long, isMMS: Boolean): Long? {
+        val uri = if (isMMS) Mms.CONTENT_URI else Sms.CONTENT_URI
+        var threadId: Long? = null
+        try {
+            context.queryCursor(
+                uri,
+                arrayOf(Sms.THREAD_ID),
+                "${Sms._ID} = ?",
+                arrayOf(messageId.toString())
+            ) { cursor ->
+                threadId = cursor.getLongValue(Sms.THREAD_ID)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return threadId
     }
 
     /** A locked thread's messages, decrypted, for the thread view. */

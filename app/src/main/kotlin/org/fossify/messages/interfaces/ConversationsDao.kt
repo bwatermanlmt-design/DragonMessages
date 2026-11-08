@@ -46,6 +46,16 @@ interface ConversationsDao {
     @Query("UPDATE conversations SET muted = :muted WHERE thread_id = :threadId")
     fun updateMuted(threadId: Long, muted: Boolean)
 
+    /**
+     * The Locker's snippet wipe: a locked thread's stored snippet must
+     * not hold a plaintext copy of a message that now lives only
+     * encrypted. The list display re-derives the snippet from Room
+     * messages (empty for a locked thread), so clearing the stored
+     * column leaves the thread showing sender and date only.
+     */
+    @Query("UPDATE conversations SET snippet = '' WHERE thread_id = :threadId")
+    fun clearSnippet(threadId: Long)
+
     /** Every non-archived conversation, whatever mailbox it currently sits in. */
     @Query("SELECT * FROM conversations WHERE archived = 0")
     fun getAllNonArchivedConversations(): List<Conversation>

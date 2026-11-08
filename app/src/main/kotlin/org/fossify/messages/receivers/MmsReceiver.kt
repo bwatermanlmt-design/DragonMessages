@@ -23,6 +23,7 @@ import org.fossify.messages.extensions.showReceivedMessageNotification
 import org.fossify.messages.extensions.updateConversationArchivedStatus
 import org.fossify.messages.filtering.OcrGate
 import org.fossify.messages.helpers.FilterEvaluator
+import org.fossify.messages.helpers.LockerManager
 import org.fossify.messages.helpers.MmsOcr
 import org.fossify.messages.helpers.refreshConversations
 import org.fossify.messages.helpers.refreshMessages
@@ -128,6 +129,15 @@ class MmsReceiver : MmsReceivedReceiver() {
         val conversation = context.getConversations(mms.threadId).firstOrNull() ?: return
         runCatching { context.insertOrUpdateConversation(conversation) }
         runCatching { context.conversationsDB.updateMailbox(mms.threadId, verdict.mailbox) }
+        // A new arrival in a locked thread is isolated at once: the MMS
+        // is already in the shared provider database (the library stored
+        // it), so it moves into the encrypted store before anything
+        // refreshes. The knock above shows no content.
+        if (verdict.mailbox == Mailbox.LOCKER) {
+            runCatching {
+                LockerManager(context).lockMessage(mms.id, isMMS = true, mms.threadId)
+            }
+        }
         // Mark Spam as read (revision 10, when the toggle is on): unlike
         // SMS arrivals, an MMS is already stored by the library, so a
         // Spam filing on its own would leave it unread.

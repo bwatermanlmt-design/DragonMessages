@@ -121,6 +121,24 @@
     <string name="move_out_of_locker">Move out of Locker</string>
     <string name="unlock_locker">Unlock the Locker</string>
     <string name="locker_subtitle">Locked — biometric or device credential required</string>
+    <string name="locker_lock_failed">Couldn’t lock that conversation — nothing was moved</string>
+    <string name="locker_unlock_failed">Couldn’t unlock that conversation — nothing was moved</string>
+    <string name="locker_wrong_code">Wrong code</string>
+    <string name="locker_code_hint">Locker code</string>
+    <string name="locker_new_code_hint">New locker code</string>
+    <string name="locker_confirm_code_hint">Confirm locker code</string>
+    <string name="locker_set_code">Set locker code</string>
+    <string name="locker_code_too_short">The code needs at least %1$d characters</string>
+    <string name="locker_code_mismatch">The two codes don’t match</string>
+    <string name="locker_gate_method">Locker unlock method</string>
+    <string name="locker_gate_device">Device unlock</string>
+    <string name="locker_gate_code">Locker code</string>
+    <string name="locker_gate_device_summary">Biometric or device PIN, pattern, or password</string>
+    <string name="locker_gate_code_summary">A code only this app asks for</string>
+    <string name="locker_change_code">Change locker code</string>
+    <string name="locker_set_code_row">Set locker code</string>
+    <string name="locker_export_locked">Include locked messages in exports</string>
+    <string name="locker_export_locked_summary">Locked messages are left out of exports unless this is on — an export that includes them holds them in the clear</string>
     <!-- Visible folder-view action rows (revision 8) -->
     <string name="new_folder_subtitle">Create a folder of your own</string>
     <string name="manage_folders_subtitle">Rename or delete folders, map contact labels to them</string>

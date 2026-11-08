@@ -25,6 +25,7 @@ import org.fossify.messages.extensions.showLockerWarningNotification
 import org.fossify.messages.extensions.showReceivedMessageNotification
 import org.fossify.messages.extensions.updateConversationArchivedStatus
 import org.fossify.messages.helpers.FilterEvaluator
+import org.fossify.messages.helpers.LockerManager
 import org.fossify.messages.helpers.refreshConversations
 import org.fossify.messages.helpers.refreshMessages
 import org.fossify.messages.models.FilterAuditEntry
@@ -162,6 +163,17 @@ class SmsReceiver : BroadcastReceiver() {
         )
 
         context.messagesDB.insertOrUpdate(message)
+
+        // A new arrival in a locked thread is isolated at once: the
+        // verdict already kept the thread in the Locker (ThreadPrecedence)
+        // and the knock below shows no content, so the message moves from
+        // the shared provider database into the encrypted store before
+        // anything refreshes or notifies.
+        if (mailbox == Mailbox.LOCKER) {
+            runCatching {
+                LockerManager(context).lockMessage(newMessageId, isMMS = false, threadId)
+            }
+        }
 
         if (context.shouldUnarchive()) {
             context.updateConversationArchivedStatus(threadId, false)

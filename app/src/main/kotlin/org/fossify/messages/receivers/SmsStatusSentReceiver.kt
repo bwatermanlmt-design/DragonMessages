@@ -17,6 +17,7 @@ import org.fossify.messages.extensions.getThreadId
 import org.fossify.messages.extensions.messagesDB
 import org.fossify.messages.extensions.messagingUtils
 import org.fossify.messages.extensions.notificationHelper
+import org.fossify.messages.helpers.LockerManager
 import org.fossify.messages.helpers.refreshConversations
 import org.fossify.messages.helpers.refreshMessages
 
@@ -53,6 +54,13 @@ class SmsStatusSentReceiver : SendStatusReceiver() {
                 }
 
                 context.messagesDB.updateType(messageId, type)
+                // A sent message in a locked thread is isolated now that
+                // its status is final, so the stored copy carries the real
+                // SENT/FAILED state. This is the choke point for every
+                // in-app send (thread view, scheduled send, quick reply).
+                runCatching {
+                    LockerManager(context).lockSentMessage(messageId, isMMS = false)
+                }
                 refreshMessages()
                 refreshConversations()
             }

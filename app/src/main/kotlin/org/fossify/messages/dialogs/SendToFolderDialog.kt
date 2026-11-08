@@ -8,6 +8,7 @@ import org.fossify.commons.models.RadioItem
 import org.fossify.messages.R
 import org.fossify.messages.helpers.FilterEvaluator
 import org.fossify.messages.helpers.FolderManager
+import org.fossify.messages.helpers.LockerManager
 import org.fossify.messages.models.Conversation
 import org.fossify.messages.models.Mailbox
 
@@ -68,17 +69,56 @@ class SendToFolderDialog(
 
     private fun fileTo(targetMailbox: String) {
         ensureBackgroundThread {
+            // The Locker is not a label: filing there encrypts the thread
+            // and deletes it from the shared database, and filing out
+            // restores it first — then the chosen destination applies, so
+            // an explicit pick (Spam, a folder, …) wins over where the
+            // thread came from. A failed lock or unlock leaves the thread
+            // exactly where it was.
+            var failed = false
             conversations.forEach { conversation ->
-                FilterEvaluator.applyManualFiling(activity, conversation, targetMailbox)
+                val ok = when {
+                    targetMailbox == Mailbox.LOCKER && conversation.mailbox != Mailbox.LOCKER ->
+                        LockerManager(activity).lockThread(conversation.threadId)
+
+                    conversation.mailbox == Mailbox.LOCKER && targetMailbox != Mailbox.LOCKER -> {
+                        if (LockerManager(activity).unlockThread(conversation.threadId)) {
+                            FilterEvaluator.applyManualFiling(activity, conversation, targetMailbox)
+                            true
+                        } else {
+                            false
+                        }
+                    }
+
+                    else -> {
+                        FilterEvaluator.applyManualFiling(activity, conversation, targetMailbox)
+                        true
+                    }
+                }
+                if (!ok) {
+                    failed = true
+                }
             }
 
             activity.runOnUiThread {
-                activity.toast(
-                    activity.getString(
-                        R.string.placed_in_folder,
-                        FolderManager.displayName(activity, targetMailbox)
+                if (failed) {
+                    activity.toast(
+                        activity.getString(
+                            if (targetMailbox == Mailbox.LOCKER) {
+                                R.string.locker_lock_failed
+                            } else {
+                                R.string.locker_unlock_failed
+                            }
+                        )
                     )
-                )
+                } else {
+                    activity.toast(
+                        activity.getString(
+                            R.string.placed_in_folder,
+                            FolderManager.displayName(activity, targetMailbox)
+                        )
+                    )
+                }
                 callback(targetMailbox)
             }
         }

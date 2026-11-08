@@ -55,6 +55,7 @@ import org.fossify.messages.helpers.AttachmentUtils.parseAttachmentNames
 import org.fossify.messages.helpers.Config
 import org.fossify.messages.helpers.FILE_SIZE_NONE
 import org.fossify.messages.helpers.MAX_MESSAGE_LENGTH
+import org.fossify.messages.helpers.LockerManager
 import org.fossify.messages.helpers.MESSAGES_LIMIT
 import org.fossify.messages.helpers.MessagingCache
 import org.fossify.messages.helpers.NotificationHelper
@@ -141,6 +142,30 @@ fun Context.getMessages(
     includeScheduledMessages: Boolean = true,
     limit: Int = MESSAGES_LIMIT,
 ): ArrayList<Message> {
+    // A locked thread has nothing in the shared provider database by
+    // design: its messages live only in the encrypted store, so the
+    // thread view reads them from there. Scheduled (unsent) messages
+    // still live in Room and are shown alongside, like anywhere else.
+    if (LockerManager(this).isThreadLocked(threadId)) {
+        val locked = LockerManager(this).getLockedMessages(threadId)
+        val filtered = if (dateFrom == -1) locked else locked.filter { it.date < dateFrom }
+        val scheduled = if (includeScheduledMessages) {
+            try {
+                messagesDB.getScheduledThreadMessages(threadId)
+            } catch (e: Exception) {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
+        return (filtered + scheduled)
+            .filter { it.participants.isNotEmpty() }
+            .filterNot { it.isScheduled && it.millis() < System.currentTimeMillis() }
+            .sortedWith(compareBy<Message> { it.date }.thenBy { it.id })
+            .takeLast(limit)
+            .toMutableList() as ArrayList<Message>
+    }
+
     val uri = Sms.CONTENT_URI
     val projection = arrayOf(
         Sms._ID,

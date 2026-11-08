@@ -218,4 +218,37 @@ class Config(context: Context) : BaseConfig(context) {
             .split(",").filter { it.isNotEmpty() }
         set(folderSectionOrder) = prefs.edit()
             .putString(FOLDER_SECTION_ORDER, folderSectionOrder.joinToString(",")).apply()
+
+    /**
+     * The Locker's gate (revision 11): "device" (Android device unlock —
+     * biometric or PIN/pattern/password, the default) or "code" (a chosen
+     * app-only code). Changing the method or the code first requires
+     * authenticating with the current method.
+     */
+    var lockerGateMethod: String
+        get() = prefs.getString(LOCKER_GATE_METHOD, LockerGate.METHOD_DEVICE) ?: LockerGate.METHOD_DEVICE
+        set(lockerGateMethod) = prefs.edit()
+            .putString(LOCKER_GATE_METHOD, lockerGateMethod).apply()
+
+    /** SHA-256 hex of the locker code (salted); empty when no code is set. */
+    var lockerCodeHash: String
+        get() = prefs.getString(LOCKER_CODE_HASH, "") ?: ""
+        set(lockerCodeHash) = prefs.edit()
+            .putString(LOCKER_CODE_HASH, lockerCodeHash).apply()
+
+    /** Hex of the random salt for [lockerCodeHash]. */
+    var lockerCodeSalt: String
+        get() = prefs.getString(LOCKER_CODE_SALT, "") ?: ""
+        set(lockerCodeSalt) = prefs.edit()
+            .putString(LOCKER_CODE_SALT, lockerCodeSalt).apply()
+
+    /**
+     * Export opt-in (revision 11): locked messages are excluded from
+     * exports by default — they live only encrypted in the Locker. When
+     * on, an export includes them decrypted, in the clear.
+     */
+    var exportLockedMessages: Boolean
+        get() = prefs.getBoolean(EXPORT_LOCKED_MESSAGES, false)
+        set(exportLockedMessages) = prefs.edit()
+            .putBoolean(EXPORT_LOCKED_MESSAGES, exportLockedMessages).apply()
 }
