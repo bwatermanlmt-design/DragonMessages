@@ -80,7 +80,7 @@
                 android:layout_marginTop="@dimen/activity_margin"
                 android:background="@drawable/ripple_all_corners"
                 android:padding="@dimen/activity_margin"
-                android:text="@string/seeker_create_rules"
+                android:text="@string/seeker_create_rules_none"
                 android:textSize="@dimen/bigger_text_size"
                 android:visibility="gone" />
 

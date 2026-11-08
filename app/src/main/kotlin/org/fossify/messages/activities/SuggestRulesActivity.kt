@@ -127,7 +127,7 @@ class SuggestRulesActivity : SimpleActivity() {
                 SeekerKind.AND_COMBINATION -> R.string.seeker_group_combination
             }
         )
-        setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.bigger_text_size))
+        setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, resources.getDimension(org.fossify.commons.R.dimen.bigger_text_size))
         setTypeface(typeface, android.graphics.Typeface.BOLD)
         alpha = 0.65f
         setPadding(
