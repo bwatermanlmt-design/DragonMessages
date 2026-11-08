@@ -82,6 +82,9 @@ fun wordPile(seed: List<SeekerMessage>, ham: List<SeekerMessage>): Map<String, W
         WordBucket(spamCount = spamCounts[word] ?: 0, hamCount = hamCounts[word] ?: 0)
     }
 }
+
+/**
+ * The pattern seeker (spec: dragon-pattern-seeker-spec.md): mine the
  * Spam folder for patterns that never hit a good message, and propose
  * them as rules Ben picks. One mining pass, used twice — seek mines the
  * whole Spam folder, refine re-runs it with one more ham example and a
