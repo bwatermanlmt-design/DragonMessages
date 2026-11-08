@@ -15,6 +15,8 @@ import org.fossify.messages.interfaces.DraftsDao
 import org.fossify.messages.interfaces.FilterAuditDao
 import org.fossify.messages.interfaces.FilterRulesDao
 import org.fossify.messages.interfaces.FoldersDao
+import org.fossify.messages.interfaces.LockedMessagesDao
+import org.fossify.messages.interfaces.LockedThreadsDao
 import org.fossify.messages.interfaces.MessageAttachmentsDao
 import org.fossify.messages.interfaces.MessagesDao
 import org.fossify.messages.interfaces.SenderTagsDao
@@ -25,6 +27,8 @@ import org.fossify.messages.models.FilterAuditEntry
 import org.fossify.messages.models.FilterRule
 import org.fossify.messages.models.Folder
 import org.fossify.messages.models.LabelMapping
+import org.fossify.messages.models.LockedMessage
+import org.fossify.messages.models.LockedThread
 import org.fossify.messages.models.Message
 import org.fossify.messages.models.MessageAttachment
 import org.fossify.messages.models.RecycleBinMessage
@@ -44,9 +48,11 @@ import org.fossify.messages.models.SenderTags
         SenderTags::class,
         Folder::class,
         LabelMapping::class,
-        SenderFiling::class
+        SenderFiling::class,
+        LockedMessage::class,
+        LockedThread::class
     ],
-    version = 17
+    version = 18
 )
 @TypeConverters(Converters::class)
 abstract class MessagesDatabase : RoomDatabase() {
@@ -68,6 +74,10 @@ abstract class MessagesDatabase : RoomDatabase() {
     abstract fun SenderTagsDao(): SenderTagsDao
 
     abstract fun FoldersDao(): FoldersDao
+
+    abstract fun LockedMessagesDao(): LockedMessagesDao
+
+    abstract fun LockedThreadsDao(): LockedThreadsDao
 
     companion object {
         private var db: MessagesDatabase? = null
@@ -98,6 +108,7 @@ abstract class MessagesDatabase : RoomDatabase() {
                             .addMigrations(MIGRATION_14_15)
                             .addMigrations(MIGRATION_15_16)
                             .addMigrations(MIGRATION_16_17)
+                            .addMigrations(MIGRATION_17_18)
                             .build()
                     }
                 }
@@ -277,6 +288,24 @@ abstract class MessagesDatabase : RoomDatabase() {
                     // default: existing rules keep null (any).
                     execSQL("ALTER TABLE filter_rules ADD COLUMN replied_to INTEGER")
                     execSQL("ALTER TABLE filter_rules ADD COLUMN manually_filed INTEGER")
+                }
+            }
+        }
+
+        private val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.apply {
+                    // Revision 11 Locker isolation: locked messages live
+                    // only here, encrypted, never in the shared provider
+                    // database. Defaults match the entity declarations
+                    // exactly, so Room's schema validation passes on
+                    // upgraded installs.
+                    execSQL(
+                        "CREATE TABLE IF NOT EXISTS `locked_messages` (`id` INTEGER NOT NULL, `thread_id` INTEGER NOT NULL, `is_mms` INTEGER NOT NULL, `date` INTEGER NOT NULL, `iv` TEXT NOT NULL, `ciphertext` TEXT NOT NULL, PRIMARY KEY(`id`))"
+                    )
+                    execSQL(
+                        "CREATE TABLE IF NOT EXISTS `locked_threads` (`thread_id` INTEGER NOT NULL, `previous_mailbox` TEXT NOT NULL, `locked_at` INTEGER NOT NULL, PRIMARY KEY(`thread_id`))"
+                    )
                 }
             }
         }

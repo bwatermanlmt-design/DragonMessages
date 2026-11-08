@@ -41,7 +41,19 @@ class MessagesReader(private val context: Context) {
     }
 
     private fun getSmsMessages(threadIds: List<Long>): List<SmsBackup> {
+        return threadIds.flatMap { threadId ->
+            getSmsBackupsForThread(threadId).map { it.second }
+        }
+    }
+
+    /**
+     * The Locker's lock path: one thread's SMS, each paired with its
+     * provider id, so the encrypted row can be keyed to the message it
+     * replaces (SmsBackup itself carries no id).
+     */
+    fun getSmsBackupsForThread(threadId: Long): List<Pair<Long, SmsBackup>> {
         val projection = arrayOf(
+            Sms._ID,
             Sms.SUBSCRIPTION_ID,
             Sms.ADDRESS,
             Sms.BODY,
@@ -56,50 +68,81 @@ class MessagesReader(private val context: Context) {
         )
 
         val selection = "${Sms.THREAD_ID} = ?"
-        val smsList = mutableListOf<SmsBackup>()
-
-        threadIds.map { it.toString() }.forEach { threadId ->
-            context.queryCursor(
-                uri = Sms.CONTENT_URI,
-                projection = projection,
-                selection = selection,
-                selectionArgs = arrayOf(threadId)
-            ) { cursor ->
-                val subscriptionId = cursor.getLongValue(Sms.SUBSCRIPTION_ID)
-                val address = cursor.getStringValue(Sms.ADDRESS)
-                val body = cursor.getStringValueOrNull(Sms.BODY)
-                val date = cursor.getLongValue(Sms.DATE)
-                val dateSent = cursor.getLongValue(Sms.DATE_SENT)
-                val locked = cursor.getIntValue(Sms.LOCKED)
-                val protocol = cursor.getStringValueOrNull(Sms.PROTOCOL)
-                val read = cursor.getIntValue(Sms.READ)
-                val status = cursor.getIntValue(Sms.STATUS)
-                val type = cursor.getIntValue(Sms.TYPE)
-                val serviceCenter = cursor.getStringValueOrNull(Sms.SERVICE_CENTER)
-                smsList.add(
-                    SmsBackup(
-                        subscriptionId = subscriptionId,
-                        address = address,
-                        body = body,
-                        date = date,
-                        dateSent = dateSent,
-                        locked = locked,
-                        protocol = protocol,
-                        read = read,
-                        status = status,
-                        type = type,
-                        serviceCenter = serviceCenter
-                    )
-                )
-            }
+        val smsList = mutableListOf<Pair<Long, SmsBackup>>()
+        context.queryCursor(
+            uri = Sms.CONTENT_URI,
+            projection = projection,
+            selection = selection,
+            selectionArgs = arrayOf(threadId.toString())
+        ) { cursor ->
+            smsList.add(cursor.getLongValue(Sms._ID) to smsBackupFromCursor(cursor))
         }
         return smsList
+    }
+
+    /** The Locker's single-message lock path: one SMS by provider id. */
+    fun getSmsBackupById(id: Long): Pair<Long, SmsBackup>? {
+        val projection = arrayOf(
+            Sms._ID,
+            Sms.SUBSCRIPTION_ID,
+            Sms.ADDRESS,
+            Sms.BODY,
+            Sms.DATE,
+            Sms.DATE_SENT,
+            Sms.LOCKED,
+            Sms.PROTOCOL,
+            Sms.READ,
+            Sms.STATUS,
+            Sms.TYPE,
+            Sms.SERVICE_CENTER
+        )
+
+        var result: Pair<Long, SmsBackup>? = null
+        context.queryCursor(
+            uri = Sms.CONTENT_URI,
+            projection = projection,
+            selection = "${Sms._ID} = ?",
+            selectionArgs = arrayOf(id.toString())
+        ) { cursor ->
+            result = cursor.getLongValue(Sms._ID) to smsBackupFromCursor(cursor)
+        }
+        return result
+    }
+
+    private fun smsBackupFromCursor(cursor: android.database.Cursor): SmsBackup {
+        return SmsBackup(
+            subscriptionId = cursor.getLongValue(Sms.SUBSCRIPTION_ID),
+            address = cursor.getStringValue(Sms.ADDRESS),
+            body = cursor.getStringValueOrNull(Sms.BODY),
+            date = cursor.getLongValue(Sms.DATE),
+            dateSent = cursor.getLongValue(Sms.DATE_SENT),
+            locked = cursor.getIntValue(Sms.LOCKED),
+            protocol = cursor.getStringValueOrNull(Sms.PROTOCOL),
+            read = cursor.getIntValue(Sms.READ),
+            status = cursor.getIntValue(Sms.STATUS),
+            type = cursor.getIntValue(Sms.TYPE),
+            serviceCenter = cursor.getStringValueOrNull(Sms.SERVICE_CENTER)
+        )
     }
 
     private fun getMmsMessages(
         threadIds: List<Long>,
         includeTextOnlyAttachment: Boolean = false
     ): List<MmsBackup> {
+        return threadIds.flatMap { threadId ->
+            getMmsBackupsForThread(threadId, includeTextOnlyAttachment).map { it.second }
+        }
+    }
+
+    /**
+     * The Locker's lock path: one thread's MMS, each paired with its
+     * provider id, so the encrypted row can be keyed to the message it
+     * replaces (MmsBackup itself carries no id).
+     */
+    fun getMmsBackupsForThread(
+        threadId: Long,
+        includeTextOnlyAttachment: Boolean = false
+    ): List<Pair<Long, MmsBackup>> {
         val projection = arrayOf(
             Mms._ID,
             Mms.CREATOR,
@@ -125,62 +168,77 @@ class MessagesReader(private val context: Context) {
         } else {
             "${Mms.THREAD_ID} = ?"
         }
-        val mmsList = mutableListOf<MmsBackup>()
-
-        threadIds.map { it.toString() }.forEach { threadId ->
-            val selectionArgs = if (includeTextOnlyAttachment) {
-                arrayOf(threadId, "1")
-            } else {
-                arrayOf(threadId)
-            }
-            context.queryCursor(Mms.CONTENT_URI, projection, selection, selectionArgs) { cursor ->
-                val mmsId = cursor.getLongValue(Mms._ID)
-                val creator = cursor.getStringValueOrNull(Mms.CREATOR)
-                val contentType = cursor.getStringValueOrNull(Mms.CONTENT_TYPE)
-                val deliveryReport = cursor.getIntValue(Mms.DELIVERY_REPORT)
-                val date = cursor.getLongValue(Mms.DATE)
-                val dateSent = cursor.getLongValue(Mms.DATE_SENT)
-                val locked = cursor.getIntValue(Mms.LOCKED)
-                val messageType = cursor.getIntValue(Mms.MESSAGE_TYPE)
-                val messageBox = cursor.getIntValue(Mms.MESSAGE_BOX)
-                val read = cursor.getIntValue(Mms.READ)
-                val readReport = cursor.getIntValue(Mms.READ_REPORT)
-                val seen = cursor.getIntValue(Mms.SEEN)
-                val textOnly = cursor.getIntValue(Mms.TEXT_ONLY)
-                val status = cursor.getStringValueOrNull(Mms.STATUS)
-                val subject = cursor.getStringValueOrNull(Mms.SUBJECT)
-                val subjectCharSet = cursor.getStringValueOrNull(Mms.SUBJECT_CHARSET)
-                val subscriptionId = cursor.getLongValue(Mms.SUBSCRIPTION_ID)
-                val transactionId = cursor.getStringValueOrNull(Mms.TRANSACTION_ID)
-
-                val parts = getParts(mmsId)
-                val addresses = getMmsAddresses(mmsId)
-                mmsList.add(
-                    MmsBackup(
-                        creator = creator,
-                        contentType = contentType,
-                        deliveryReport = deliveryReport,
-                        date = date,
-                        dateSent = dateSent,
-                        locked = locked,
-                        messageType = messageType,
-                        messageBox = messageBox,
-                        read = read,
-                        readReport = readReport,
-                        seen = seen,
-                        textOnly = textOnly,
-                        status = status,
-                        subject = subject,
-                        subjectCharSet = subjectCharSet,
-                        subscriptionId = subscriptionId,
-                        transactionId = transactionId,
-                        addresses = addresses,
-                        parts = parts
-                    )
-                )
-            }
+        val selectionArgs = if (includeTextOnlyAttachment) {
+            arrayOf(threadId.toString(), "1")
+        } else {
+            arrayOf(threadId.toString())
+        }
+        val mmsList = mutableListOf<Pair<Long, MmsBackup>>()
+        context.queryCursor(Mms.CONTENT_URI, projection, selection, selectionArgs) { cursor ->
+            val mmsId = cursor.getLongValue(Mms._ID)
+            mmsList.add(mmsId to mmsBackupFromCursor(cursor, mmsId))
         }
         return mmsList
+    }
+
+    /** The Locker's single-message lock path: one MMS by provider id. */
+    fun getMmsBackupById(id: Long): Pair<Long, MmsBackup>? {
+        val projection = arrayOf(
+            Mms._ID,
+            Mms.CREATOR,
+            Mms.CONTENT_TYPE,
+            Mms.DELIVERY_REPORT,
+            Mms.DATE,
+            Mms.DATE_SENT,
+            Mms.LOCKED,
+            Mms.MESSAGE_TYPE,
+            Mms.MESSAGE_BOX,
+            Mms.READ,
+            Mms.READ_REPORT,
+            Mms.SEEN,
+            Mms.TEXT_ONLY,
+            Mms.STATUS,
+            Mms.SUBJECT,
+            Mms.SUBJECT_CHARSET,
+            Mms.SUBSCRIPTION_ID,
+            Mms.TRANSACTION_ID
+        )
+
+        var result: Pair<Long, MmsBackup>? = null
+        context.queryCursor(
+            Mms.CONTENT_URI,
+            projection,
+            "${Mms._ID} = ?",
+            arrayOf(id.toString())
+        ) { cursor ->
+            val mmsId = cursor.getLongValue(Mms._ID)
+            result = mmsId to mmsBackupFromCursor(cursor, mmsId)
+        }
+        return result
+    }
+
+    private fun mmsBackupFromCursor(cursor: android.database.Cursor, mmsId: Long): MmsBackup {
+        return MmsBackup(
+            creator = cursor.getStringValueOrNull(Mms.CREATOR),
+            contentType = cursor.getStringValueOrNull(Mms.CONTENT_TYPE),
+            deliveryReport = cursor.getIntValue(Mms.DELIVERY_REPORT),
+            date = cursor.getLongValue(Mms.DATE),
+            dateSent = cursor.getLongValue(Mms.DATE_SENT),
+            locked = cursor.getIntValue(Mms.LOCKED),
+            messageType = cursor.getIntValue(Mms.MESSAGE_TYPE),
+            messageBox = cursor.getIntValue(Mms.MESSAGE_BOX),
+            read = cursor.getIntValue(Mms.READ),
+            readReport = cursor.getIntValue(Mms.READ_REPORT),
+            seen = cursor.getIntValue(Mms.SEEN),
+            textOnly = cursor.getIntValue(Mms.TEXT_ONLY),
+            status = cursor.getStringValueOrNull(Mms.STATUS),
+            subject = cursor.getStringValueOrNull(Mms.SUBJECT),
+            subjectCharSet = cursor.getStringValueOrNull(Mms.SUBJECT_CHARSET),
+            subscriptionId = cursor.getLongValue(Mms.SUBSCRIPTION_ID),
+            transactionId = cursor.getStringValueOrNull(Mms.TRANSACTION_ID),
+            addresses = getMmsAddresses(mmsId),
+            parts = getParts(mmsId)
+        )
     }
 
     @SuppressLint("NewApi")
