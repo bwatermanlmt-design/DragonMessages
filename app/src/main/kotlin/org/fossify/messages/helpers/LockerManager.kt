@@ -11,6 +11,7 @@ import org.fossify.commons.extensions.notificationManager
 import org.fossify.commons.extensions.queryCursor
 import org.fossify.commons.models.PhoneNumber
 import org.fossify.commons.models.SimpleContact
+import org.fossify.messages.extensions.config
 import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.filtering.LockerCrypto
 import org.fossify.messages.extensions.deleteMessage
@@ -119,6 +120,13 @@ class LockerManager(private val context: Context) {
      * the store rows and put the conversation back where it came from.
      * A restore failure aborts the unlock — the thread stays locked
      * with its store intact, and the unlock can be retried.
+     *
+     * The provider files the restored messages under its own thread for
+     * the address — the locked thread's provider rows are gone, so its
+     * id is not reused. The restored thread is therefore re-homed to
+     * where the locked thread came from, and the stale locked row is
+     * dropped, so the user sees the same number, the same messages, in
+     * the right folder.
      */
     fun unlockThread(threadId: Long): Boolean {
         val locked = context.lockedThreadsDB.get(threadId) ?: return false
@@ -128,20 +136,94 @@ class LockerManager(private val context: Context) {
             val key = LockerKey.getOrCreateKey()
             val rows = context.lockedMessagesDB.getByThread(threadId)
 
+            var firstBackup: MessagesBackup? = null
             rows.forEach { row ->
-                when (val backup = decryptBackup(row, key)) {
+                val backup = decryptBackup(row, key)
+                if (firstBackup == null) {
+                    firstBackup = backup
+                }
+                when (backup) {
                     is SmsBackup -> writer.writeSmsMessage(backup)
                     is MmsBackup -> writer.writeMmsMessage(backup)
                 }
             }
 
+            val restoredThreadId = firstBackup?.let { findRestoredThreadId(it) }
+            if (restoredThreadId != null && restoredThreadId != 0L) {
+                context.conversationsDB.updateMailboxManuallyFiled(
+                    restoredThreadId,
+                    locked.previousMailbox
+                )
+                movePinIfNeeded(threadId, restoredThreadId)
+            }
+            context.conversationsDB.deleteThreadId(threadId)
+
             context.lockedMessagesDB.deleteByThread(threadId)
             context.lockedThreadsDB.delete(threadId)
-            context.conversationsDB.updateMailboxManuallyFiled(threadId, locked.previousMailbox)
+            writer.fixConversationDates()
             true
         } catch (e: Exception) {
             e.printStackTrace()
             false
+        }
+    }
+
+    /**
+     * The provider thread a restored message actually landed in, found
+     * by the same key the writer dedupes on. Precise for group threads
+     * too, where an address lookup would find the wrong thread.
+     */
+    private fun findRestoredThreadId(backup: MessagesBackup): Long? {
+        return try {
+            var threadId: Long? = null
+            when (backup) {
+                is SmsBackup -> {
+                    context.queryCursor(
+                        Sms.CONTENT_URI,
+                        arrayOf(Sms.THREAD_ID),
+                        "${Sms.DATE} = ? AND ${Sms.ADDRESS} = ? AND ${Sms.TYPE} = ?",
+                        arrayOf(
+                            backup.date.toString(),
+                            backup.address,
+                            backup.type.toString()
+                        )
+                    ) { cursor ->
+                        threadId = cursor.getLongValue(Sms.THREAD_ID)
+                    }
+                }
+
+                is MmsBackup -> {
+                    context.queryCursor(
+                        Mms.CONTENT_URI,
+                        arrayOf(Mms.THREAD_ID),
+                        "${Mms.DATE} = ? AND ${Mms.DATE_SENT} = ? AND ${Mms.MESSAGE_BOX} = ?",
+                        arrayOf(
+                            backup.date.toString(),
+                            backup.dateSent.toString(),
+                            backup.messageBox.toString()
+                        )
+                    ) { cursor ->
+                        threadId = cursor.getLongValue(Mms.THREAD_ID)
+                    }
+                }
+            }
+            threadId
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    /** A pinned locked thread keeps its pin on the thread it restores to. */
+    private fun movePinIfNeeded(fromThreadId: Long, toThreadId: Long) {
+        try {
+            val pinned = context.config.pinnedConversations
+            if (pinned.contains(fromThreadId.toString())) {
+                context.config.pinnedConversations =
+                    pinned.map { if (it == fromThreadId.toString()) toThreadId.toString() else it }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
