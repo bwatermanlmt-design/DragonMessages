@@ -4,8 +4,8 @@ import android.content.Context
 import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.extensions.filterRulesDB
 import org.fossify.messages.extensions.messagesDB
-import org.fossify.messages.filtering.FilterEvaluator
 import org.fossify.messages.filtering.SeekerMessage
+import org.fossify.messages.helpers.FilterEvaluator
 import org.fossify.messages.models.FilterRule
 import org.fossify.messages.models.Mailbox
 

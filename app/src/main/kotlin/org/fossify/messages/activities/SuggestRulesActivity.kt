@@ -131,9 +131,9 @@ class SuggestRulesActivity : SimpleActivity() {
         setTypeface(typeface, android.graphics.Typeface.BOLD)
         alpha = 0.65f
         setPadding(
-            resources.getDimensionPixelSize(R.dimen.activity_margin),
-            resources.getDimensionPixelSize(R.dimen.small_margin),
-            resources.getDimensionPixelSize(R.dimen.activity_margin),
+            resources.getDimensionPixelSize(org.fossify.commons.R.dimen.activity_margin),
+            resources.getDimensionPixelSize(org.fossify.commons.R.dimen.small_margin),
+            resources.getDimensionPixelSize(org.fossify.commons.R.dimen.activity_margin),
             0
         )
     }
