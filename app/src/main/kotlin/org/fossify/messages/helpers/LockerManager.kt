@@ -7,6 +7,8 @@ import android.util.Base64
 import com.google.android.mms.pdu_alt.PduHeaders
 import kotlinx.serialization.json.Json
 import org.fossify.commons.extensions.notificationManager
+import org.fossify.commons.models.PhoneNumber
+import org.fossify.commons.models.SimpleContact
 import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.extensions.deleteMessage
 import org.fossify.messages.extensions.getNameAndPhotoFromPhoneNumber
@@ -21,8 +23,6 @@ import org.fossify.messages.models.Message
 import org.fossify.messages.models.MessagesBackup
 import org.fossify.messages.models.MmsBackup
 import org.fossify.messages.models.SmsBackup
-import org.fossify.messages.models.SimpleContact
-import org.fossify.messages.models.PhoneNumber
 import javax.crypto.SecretKey
 
 /**
