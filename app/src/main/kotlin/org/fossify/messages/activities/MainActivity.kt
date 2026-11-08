@@ -486,11 +486,27 @@ class MainActivity : SimpleActivity() {
                 setupConversations(allConversations)
             }
 
+            // A locked thread's messages live only encrypted: drop any
+            // Room copies a late receiver insert left behind (an arrival
+            // racing the lock can land after the lock's delete), so every
+            // refresh converges. The first-run sync below skips locked
+            // threads for the same reason — getMessages serves the
+            // decrypted store for them, and repopulating Room with it
+            // would undo the isolation.
+            try {
+                lockedThreadsDB.getAll().forEach { locked ->
+                    messagesDB.deleteThreadMessages(locked.threadId)
+                }
+            } catch (_: Exception) {
+            }
+
             if (config.appRunCount == 1) {
                 conversations.map { it.threadId }.forEach { threadId ->
-                    val messages = getMessages(threadId, includeScheduledMessages = false)
-                    messages.chunked(30).forEach { currentMessages ->
-                        messagesDB.insertMessages(*currentMessages.toTypedArray())
+                    if (lockedThreadsDB.get(threadId) == null) {
+                        val messages = getMessages(threadId, includeScheduledMessages = false)
+                        messages.chunked(30).forEach { currentMessages ->
+                            messagesDB.insertMessages(*currentMessages.toTypedArray())
+                        }
                     }
                 }
             }
