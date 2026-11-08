@@ -195,6 +195,13 @@
             android:parentActivityName=".activities.FolderViewActivity" />
 
         <activity
+            android:name=".activities.SuggestRulesActivity"
+            android:configChanges="orientation"
+            android:exported="false"
+            android:label="@string/suggest_rules"
+            android:parentActivityName=".activities.FolderViewActivity" />
+
+        <activity
             android:name=".activities.MacroEditorActivity"
             android:configChanges="orientation"
             android:exported="false"
