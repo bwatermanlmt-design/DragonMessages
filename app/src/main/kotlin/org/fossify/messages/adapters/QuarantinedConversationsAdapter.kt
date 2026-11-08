@@ -4,6 +4,7 @@ import android.content.Intent
 import android.view.Menu
 import org.fossify.commons.dialogs.ConfirmationDialog
 import org.fossify.commons.extensions.notificationManager
+import org.fossify.commons.extensions.toast
 import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.commons.views.MyRecyclerView
 import org.fossify.messages.R
@@ -17,6 +18,7 @@ import org.fossify.messages.extensions.deleteConversation
 import org.fossify.messages.filtering.FilingReason
 import org.fossify.messages.helpers.FilingReasonText
 import org.fossify.messages.helpers.FilterEvaluator
+import org.fossify.messages.helpers.LockerManager
 import org.fossify.messages.helpers.refreshConversations
 import org.fossify.messages.models.Conversation
 import org.fossify.messages.models.Mailbox
@@ -49,17 +51,51 @@ class QuarantinedConversationsAdapter(
             R.id.cab_block -> askConfirmBlockSenders()
             R.id.cab_filing_reason -> showFilingReason()
             R.id.cab_send_to_folder -> sendToFolder()
+            R.id.cab_move_to_locker -> moveToLocker()
             R.id.cab_select_all -> selectAll()
         }
     }
 
     /**
-     * Send to folder (revision 7): the folder picker over the selected
-     * conversations — this is the "keep just this one" tool: pull a
-     * single thread out of Not in Contacts into My Contacts (or any
-     * folder) while the rest stays disposable. No Locker route here: this
-     * screen never had one. The sender is recorded with the placement,
-     * like every manual filing.
+     * Move to Locker (revision 11): the one-gesture lock. The threads
+     * most worth locking — unknown senders — live on this screen, so the
+     * Locker is offered here directly and through Send to folder, not
+     * only on the main conversation list.
+     */
+    private fun moveToLocker() {
+        if (selectedKeys.isEmpty()) {
+            return
+        }
+
+        ensureBackgroundThread {
+            val conversationsToLock = getSelectedItems()
+            val locked = ArrayList<Conversation>()
+            var failed = false
+            conversationsToLock.forEach {
+                if (LockerManager(activity).lockThread(it.threadId)) {
+                    locked.add(it)
+                } else {
+                    failed = true
+                }
+            }
+
+            if (failed) {
+                activity.runOnUiThread {
+                    activity.toast(R.string.locker_lock_failed)
+                }
+            }
+            removeConversationsFromList(locked)
+        }
+    }
+
+    /**
+     * Send to folder (revision 7, Locker route added in revision 11):
+     * the folder picker over the selected conversations — this is the
+     * "keep just this one" tool: pull a single thread out of Not in
+     * Contacts into My Contacts (or any folder) while the rest stays
+     * disposable. The Locker is offered here too: the threads most worth
+     * locking live on this screen. The sender is recorded with the
+     * placement, like every manual filing.
      */
     private fun sendToFolder() {
         val selectedConversations = getSelectedItems()
@@ -67,7 +103,7 @@ class QuarantinedConversationsAdapter(
             return
         }
 
-        SendToFolderDialog(activity, selectedConversations, includeLocker = false) {
+        SendToFolderDialog(activity, selectedConversations, includeLocker = true) {
             activity.runOnUiThread {
                 finishActMode()
                 refreshConversations()

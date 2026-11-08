@@ -1214,15 +1214,15 @@ class ThreadActivity : SimpleActivity() {
     }
 
     /**
-     * Send to folder (revision 7): file this conversation by hand to any
-     * folder. The Locker is not offered here — no move-to-Locker action
-     * existed in the thread view, and Send to folder adds no new Locker
-     * routes. The thread closes afterwards, like Block: it lives
-     * somewhere else now.
+     * Send to folder (revision 7, Locker route added in revision 11):
+     * file this conversation by hand to any folder, the Locker included
+     * — locking from inside the thread you are reading is the obvious
+     * place to offer it. The thread closes afterwards, like Block: it
+     * lives somewhere else now.
      */
     private fun sendToFolder() {
         val conv = conversation ?: return
-        SendToFolderDialog(this, listOf(conv), includeLocker = false) {
+        SendToFolderDialog(this, listOf(conv), includeLocker = true) {
             refreshConversations()
             finish()
         }

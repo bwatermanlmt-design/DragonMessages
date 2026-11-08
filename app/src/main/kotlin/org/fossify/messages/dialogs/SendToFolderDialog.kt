@@ -18,8 +18,9 @@ import org.fossify.messages.models.Mailbox
  * and the selected conversations are filed there by hand through
  * [FilterEvaluator.applyManualFiling], so the placement sticks and, for
  * 1:1 threads, the sender belongs there from now on. Any thread can go
- * to any offered folder, contact or not; the Locker is only offered
- * where a move-to-Locker action already existed (the conversation list).
+ * to any offered folder, contact or not; the Locker is offered wherever
+ * filing is offered (revision 11) — including Not in Contacts and the
+ * thread view, where the threads most worth locking live.
  */
 class SendToFolderDialog(
     private val activity: BaseSimpleActivity,
