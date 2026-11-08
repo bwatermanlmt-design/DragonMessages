@@ -172,6 +172,13 @@ class LockerManager(private val context: Context) {
             context.lockedMessagesDB.insert(row)
             context.deleteMessage(messageId, isMMS)
             context.conversationsDB.clearSnippet(threadId)
+            // Keep the locked thread sorted by its latest arrival: the
+            // receive path no longer bumps the date through the provider
+            // conversation (there is none for a locked thread).
+            runCatching {
+                val dateSeconds = (row.date / 1000L).toInt()
+                context.conversationsDB.updateDate(threadId, dateSeconds)
+            }
             true
         } catch (e: Exception) {
             e.printStackTrace()

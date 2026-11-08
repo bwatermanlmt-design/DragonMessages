@@ -46,6 +46,10 @@ interface ConversationsDao {
     @Query("UPDATE conversations SET muted = :muted WHERE thread_id = :threadId")
     fun updateMuted(threadId: Long, muted: Boolean)
 
+    /** Move a conversation's sort date (seconds) — a locked thread sorts by its latest arrival. */
+    @Query("UPDATE conversations SET date = :date WHERE thread_id = :threadId")
+    fun updateDate(threadId: Long, date: Int)
+
     /**
      * The Locker's snippet wipe: a locked thread's stored snippet must
      * not hold a plaintext copy of a message that now lives only

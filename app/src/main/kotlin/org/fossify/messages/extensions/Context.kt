@@ -77,8 +77,10 @@ import org.fossify.messages.messaging.MessagingUtils.Companion.ADDRESS_SEPARATOR
 import org.fossify.messages.messaging.SmsSender
 import org.fossify.messages.messaging.scheduleMessage
 import org.fossify.messages.models.Attachment
+import org.fossify.messages.filtering.BlockedNumbers
 import org.fossify.messages.models.Conversation
 import org.fossify.messages.models.Draft
+import org.fossify.messages.models.Mailbox
 import org.fossify.messages.models.Message
 import org.fossify.messages.models.MessageAttachment
 import org.fossify.messages.models.NamePhoto
@@ -1096,6 +1098,25 @@ fun Context.getThreadId(address: String): Long {
         Threads.getOrCreateThreadId(this, address)
     } catch (_: Exception) {
         0L
+    }
+}
+
+/**
+ * A locked thread has no rows in the shared provider database by
+ * design, so [Threads.getOrCreateThreadId] cannot find it — a new
+ * message from the same sender would open a fresh provider thread
+ * instead of joining the Locker. Resolve the sender to their locked
+ * thread first (by the Room conversation's mailbox and number), so an
+ * arrival lands in the Locker it belongs to. Null when the sender has
+ * no locked thread.
+ */
+fun Context.getLockedThreadIdForAddress(address: String): Long? {
+    return try {
+        conversationsDB.getByMailbox(Mailbox.LOCKER).firstOrNull { conversation ->
+            BlockedNumbers.numbersMatch(conversation.phoneNumber, address)
+        }?.threadId
+    } catch (_: Exception) {
+        null
     }
 }
 

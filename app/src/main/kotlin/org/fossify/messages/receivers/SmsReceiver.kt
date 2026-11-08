@@ -11,6 +11,7 @@ import org.fossify.commons.models.PhoneNumber
 import org.fossify.commons.models.SimpleContact
 import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.extensions.getConversations
+import org.fossify.messages.extensions.getLockedThreadIdForAddress
 import org.fossify.messages.extensions.getNameFromAddress
 import org.fossify.messages.extensions.getNotificationBitmap
 import org.fossify.messages.extensions.getThreadId
@@ -56,7 +57,8 @@ class SmsReceiver : BroadcastReceiver() {
                 // Nothing is silently destroyed, so the Spam folder and the
                 // audit log show everything a block ever caught.
 
-                val threadId = appContext.getThreadId(address)
+                val threadId = appContext.getLockedThreadIdForAddress(address)
+                    ?: appContext.getThreadId(address)
                 val verdict = FilterEvaluator.evaluateIncoming(
                     context = appContext,
                     sender = address,

@@ -14,6 +14,7 @@ import org.fossify.messages.extensions.getConversations
 import org.fossify.messages.extensions.getMMS
 import org.fossify.messages.extensions.getLatestMMS
 import org.fossify.messages.extensions.config
+import org.fossify.messages.extensions.getLockedThreadIdForAddress
 import org.fossify.messages.extensions.getNameFromAddress
 import org.fossify.messages.extensions.insertOrUpdateConversation
 import org.fossify.messages.extensions.markThreadMessagesRead
@@ -89,6 +90,10 @@ class MmsReceiver : MmsReceivedReceiver() {
 
         // The MMS is already stored by the library at this point; the rule
         // engine decides where it files and whether it may notify.
+        // A locked thread has no provider rows, so the library's thread
+        // would be a fresh one — resolve the sender's locked thread
+        // first, so the arrival joins the Locker it belongs to.
+        val threadId = context.getLockedThreadIdForAddress(address) ?: mms.threadId
         // Revision 9 OCR runs first, so keyword rules can catch
         // image-only texts — but only for strangers with images and
         // little text, never for contacts, and never past the budget.
@@ -98,7 +103,7 @@ class MmsReceiver : MmsReceivedReceiver() {
             sender = address,
             body = mms.body,
             channel = FilterAuditEntry.CHANNEL_MMS,
-            threadId = mms.threadId,
+            threadId = threadId,
             ocrText = ocrText
         )
 
@@ -107,7 +112,7 @@ class MmsReceiver : MmsReceivedReceiver() {
             // kind of arrival, never the content or a thumbnail.
             verdict.mailbox == Mailbox.LOCKER && !verdict.notificationMuted -> {
                 context.showLockerWarningNotification(
-                    threadId = mms.threadId,
+                    threadId = threadId,
                     senderName = senderName,
                     kindRes = lockerWarningKind(mms)
                 )
@@ -120,32 +125,41 @@ class MmsReceiver : MmsReceivedReceiver() {
                     address = address,
                     senderName = senderName,
                     body = mms.body,
-                    threadId = mms.threadId,
+                    threadId = threadId,
                     bitmap = glideBitmap
                 )
             }
         }
 
-        val conversation = context.getConversations(mms.threadId).firstOrNull() ?: return
-        runCatching { context.insertOrUpdateConversation(conversation) }
-        runCatching { context.conversationsDB.updateMailbox(mms.threadId, verdict.mailbox) }
+        // A locked thread has no provider conversation to sync — its Room
+        // row already sits in the Locker — so a missing provider thread
+        // must not cut the flow short: the isolation below still has to
+        // run. Only a non-Locker thread with no conversation is done.
+        val conversation = context.getConversations(threadId).firstOrNull()
+        if (conversation == null && verdict.mailbox != Mailbox.LOCKER) {
+            return
+        }
+        conversation?.let {
+            runCatching { context.insertOrUpdateConversation(it) }
+            runCatching { context.conversationsDB.updateMailbox(threadId, verdict.mailbox) }
+        }
         // A new arrival in a locked thread is isolated at once: the MMS
         // is already in the shared provider database (the library stored
         // it), so it moves into the encrypted store before anything
         // refreshes. The knock above shows no content.
         if (verdict.mailbox == Mailbox.LOCKER) {
             runCatching {
-                LockerManager(context).lockMessage(mms.id, isMMS = true, mms.threadId)
+                LockerManager(context).lockMessage(mms.id, isMMS = true, threadId)
             }
         }
         // Mark Spam as read (revision 10, when the toggle is on): unlike
         // SMS arrivals, an MMS is already stored by the library, so a
         // Spam filing on its own would leave it unread.
         if (verdict.mailbox == Mailbox.SPAM && context.config.markSpamAsRead) {
-            runCatching { context.markThreadMessagesRead(mms.threadId) }
+            runCatching { context.markThreadMessagesRead(threadId) }
         }
         if (context.shouldUnarchive()) {
-            context.updateConversationArchivedStatus(mms.threadId, false)
+            context.updateConversationArchivedStatus(threadId, false)
         }
         refreshMessages()
         refreshConversations()
