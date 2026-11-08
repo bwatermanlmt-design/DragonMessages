@@ -301,7 +301,7 @@ abstract class MessagesDatabase : RoomDatabase() {
                     // exactly, so Room's schema validation passes on
                     // upgraded installs.
                     execSQL(
-                        "CREATE TABLE IF NOT EXISTS `locked_messages` (`id` INTEGER NOT NULL, `thread_id` INTEGER NOT NULL, `is_mms` INTEGER NOT NULL, `date` INTEGER NOT NULL, `iv` TEXT NOT NULL, `ciphertext` TEXT NOT NULL, PRIMARY KEY(`id`))"
+                        "CREATE TABLE IF NOT EXISTS `locked_messages` (`id` INTEGER NOT NULL, `thread_id` INTEGER NOT NULL, `is_mms` INTEGER NOT NULL, `date` INTEGER NOT NULL, `iv` TEXT NOT NULL, `ciphertext` TEXT NOT NULL, PRIMARY KEY(`id`, `is_mms`))"
                     )
                     execSQL(
                         "CREATE TABLE IF NOT EXISTS `locked_threads` (`thread_id` INTEGER NOT NULL, `previous_mailbox` TEXT NOT NULL, `locked_at` INTEGER NOT NULL, PRIMARY KEY(`thread_id`))"
