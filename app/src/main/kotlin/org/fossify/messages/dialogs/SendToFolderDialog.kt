@@ -1,6 +1,7 @@
 package org.fossify.messages.dialogs
 
 import org.fossify.commons.activities.BaseSimpleActivity
+import org.fossify.commons.dialogs.ConfirmationDialog
 import org.fossify.commons.dialogs.RadioGroupDialog
 import org.fossify.commons.extensions.toast
 import org.fossify.commons.helpers.ensureBackgroundThread
@@ -9,6 +10,8 @@ import org.fossify.messages.R
 import org.fossify.messages.helpers.FilterEvaluator
 import org.fossify.messages.helpers.FolderManager
 import org.fossify.messages.helpers.LockerManager
+import org.fossify.messages.helpers.isDefaultSmsApp
+import org.fossify.messages.helpers.requestDefaultSmsApp
 import org.fossify.messages.models.Conversation
 import org.fossify.messages.models.Mailbox
 
@@ -77,32 +80,47 @@ class SendToFolderDialog(
             // thread came from. A failed lock or unlock leaves the thread
             // exactly where it was.
             var failed = false
+            var needsRole = false
             conversations.forEach { conversation ->
-                val ok = when {
+                when {
                     targetMailbox == Mailbox.LOCKER && conversation.mailbox != Mailbox.LOCKER ->
-                        LockerManager(activity).lockThread(conversation.threadId)
+                        if (!LockerManager(activity).lockThread(conversation.threadId)) {
+                            failed = true
+                        }
 
                     conversation.mailbox == Mailbox.LOCKER && targetMailbox != Mailbox.LOCKER -> {
-                        if (LockerManager(activity).unlockThread(conversation.threadId)) {
+                        // Unlocking writes the messages back to the
+                        // phone's shared database, which only the
+                        // default texting app may do. If Dragon is not
+                        // the default, say so and offer to make it the
+                        // default, instead of failing with the generic
+                        // toast.
+                        if (!activity.isDefaultSmsApp()) {
+                            needsRole = true
+                        } else if (LockerManager(activity).unlockThread(conversation.threadId)) {
                             FilterEvaluator.applyManualFiling(activity, conversation, targetMailbox)
-                            true
                         } else {
-                            false
+                            failed = true
                         }
                     }
 
                     else -> {
                         FilterEvaluator.applyManualFiling(activity, conversation, targetMailbox)
-                        true
                     }
-                }
-                if (!ok) {
-                    failed = true
                 }
             }
 
             activity.runOnUiThread {
-                if (failed) {
+                if (needsRole) {
+                    ConfirmationDialog(
+                        activity,
+                        message = activity.getString(R.string.locker_unlock_needs_default),
+                        positive = R.string.locker_set_as_default,
+                        negative = org.fossify.commons.R.string.no
+                    ) {
+                        activity.requestDefaultSmsApp()
+                    }
+                } else if (failed) {
                     activity.toast(
                         activity.getString(
                             if (targetMailbox == Mailbox.LOCKER) {

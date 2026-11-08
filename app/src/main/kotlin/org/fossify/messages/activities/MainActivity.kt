@@ -287,6 +287,15 @@ class MainActivity : SimpleActivity() {
     }
 
     private fun loadMessages() {
+        // The Locker reads Dragon's own encrypted store, never the
+        // shared provider, so its list needs no SMS role: open it even
+        // when another app is the default texter. Unlocking still needs
+        // the role (only the default app may write messages back), and
+        // the unlock flow asks for it at that point instead.
+        if (mailboxFilter == Mailbox.LOCKER) {
+            askPermissions()
+            return
+        }
         if (isQPlus()) {
             val roleManager = getSystemService(RoleManager::class.java)
             if (roleManager!!.isRoleAvailable(RoleManager.ROLE_SMS)) {

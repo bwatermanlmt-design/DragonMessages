@@ -123,6 +123,8 @@
     <string name="locker_subtitle">Locked — biometric or device credential required</string>
     <string name="locker_lock_failed">Couldn’t lock that conversation — nothing was moved</string>
     <string name="locker_unlock_failed">Couldn’t unlock that conversation — nothing was moved</string>
+    <string name="locker_unlock_needs_default">To move messages out of the Locker, Dragon needs to be your default texting app, so it can write them back to your phone’s messages. Set Dragon as your default now?</string>
+    <string name="locker_set_as_default">Set as default</string>
     <string name="locker_wrong_code">Wrong code</string>
     <string name="locker_code_hint">Locker code</string>
     <string name="locker_new_code_hint">New locker code</string>

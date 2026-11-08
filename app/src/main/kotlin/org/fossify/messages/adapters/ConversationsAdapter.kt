@@ -26,6 +26,8 @@ import org.fossify.messages.extensions.renameConversation
 import org.fossify.messages.extensions.updateConversationArchivedStatus
 import org.fossify.messages.helpers.FilterEvaluator
 import org.fossify.messages.helpers.LockerManager
+import org.fossify.messages.helpers.isDefaultSmsApp
+import org.fossify.messages.helpers.requestDefaultSmsApp
 import org.fossify.messages.helpers.refreshConversations
 import org.fossify.messages.messaging.isShortCodeWithLetters
 import org.fossify.messages.models.Conversation
@@ -182,23 +184,37 @@ class ConversationsAdapter(
             // leaves the thread exactly where it was.
             val moved = ArrayList<Conversation>()
             var failed = false
+            var needsRole = false
             conversationsToMove.forEach { conversation ->
-                val ok = when {
+                when {
                     targetMailbox == Mailbox.LOCKER && conversation.mailbox != Mailbox.LOCKER ->
-                        LockerManager(activity).lockThread(conversation.threadId)
+                        if (LockerManager(activity).lockThread(conversation.threadId)) {
+                            moved.add(conversation)
+                        } else {
+                            failed = true
+                        }
 
-                    conversation.mailbox == Mailbox.LOCKER && targetMailbox != Mailbox.LOCKER ->
-                        LockerManager(activity).unlockThread(conversation.threadId)
+                    conversation.mailbox == Mailbox.LOCKER && targetMailbox != Mailbox.LOCKER -> {
+                        // Unlocking writes the messages back to the
+                        // phone's shared database, which only the
+                        // default texting app may do. If Dragon is not
+                        // the default, say so and offer to make it the
+                        // default, instead of failing with the generic
+                        // toast and leaving the user stuck outside the
+                        // Locker list.
+                        if (!activity.isDefaultSmsApp()) {
+                            needsRole = true
+                        } else if (LockerManager(activity).unlockThread(conversation.threadId)) {
+                            moved.add(conversation)
+                        } else {
+                            failed = true
+                        }
+                    }
 
                     else -> {
                         FilterEvaluator.applyManualFiling(activity, conversation, targetMailbox)
-                        true
+                        moved.add(conversation)
                     }
-                }
-                if (ok) {
-                    moved.add(conversation)
-                } else {
-                    failed = true
                 }
             }
 
@@ -209,7 +225,16 @@ class ConversationsAdapter(
             }
 
             activity.runOnUiThread {
-                if (failed) {
+                if (needsRole) {
+                    ConfirmationDialog(
+                        activity,
+                        message = activity.getString(R.string.locker_unlock_needs_default),
+                        positive = R.string.locker_set_as_default,
+                        negative = org.fossify.commons.R.string.no
+                    ) {
+                        activity.requestDefaultSmsApp()
+                    }
+                } else if (failed) {
                     activity.toast(
                         activity.getString(
                             if (targetMailbox == Mailbox.LOCKER) {

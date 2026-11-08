@@ -20,6 +20,7 @@ import org.fossify.messages.extensions.lockedMessagesDB
 import org.fossify.messages.extensions.lockedThreadsDB
 import org.fossify.messages.extensions.messagesDB
 import org.fossify.messages.messaging.MessagingUtils.Companion.ADDRESS_SEPARATOR
+import org.fossify.messages.models.Conversation
 import org.fossify.messages.models.LockedMessage
 import org.fossify.messages.models.LockedThread
 import org.fossify.messages.models.Mailbox
@@ -72,6 +73,15 @@ class LockerManager(private val context: Context) {
     fun lockThread(threadId: Long): Boolean {
         if (isThreadLocked(threadId)) {
             return true
+        }
+
+        // Writing to the shared provider (the delete half of locking)
+        // requires the default-SMS role. Refuse before storing anything:
+        // a lock that stores but cannot delete would leave a half-locked
+        // thread — encrypted rows in the store, originals still in the
+        // provider, and the thread reading from the store.
+        if (!context.isDefaultSmsApp()) {
+            return false
         }
 
         val conversation = context.conversationsDB.getConversationWithThreadId(threadId)
@@ -131,16 +141,36 @@ class LockerManager(private val context: Context) {
     fun unlockThread(threadId: Long): Boolean {
         val locked = context.lockedThreadsDB.get(threadId) ?: return false
 
+        // Restoring writes the messages back to the shared provider,
+        // which only the default SMS app may do. Refuse before
+        // restoring anything: the UI flow asks for the role first and
+        // only calls unlock once it is held (or the user declines).
+        if (!context.isDefaultSmsApp()) {
+            return false
+        }
+
         return try {
             val writer = MessagesWriter(context)
             val key = LockerKey.getOrCreateKey()
             val rows = context.lockedMessagesDB.getByThread(threadId)
 
             var firstBackup: MessagesBackup? = null
+            var lastSnippet = ""
+            var lastDateSeconds = 0
             rows.forEach { row ->
                 val backup = decryptBackup(row, key)
                 if (firstBackup == null) {
                     firstBackup = backup
+                }
+                lastSnippet = when (backup) {
+                    is SmsBackup -> backup.body ?: ""
+                    is MmsBackup -> backup.parts.filter { it.contentType.startsWith("text/") }
+                        .joinToString("\n") { it.data ?: "" }
+                }
+                // SMS dates are millis, MMS dates are seconds.
+                lastDateSeconds = when (backup) {
+                    is SmsBackup -> (backup.date / 1000L).toInt()
+                    is MmsBackup -> backup.date.toInt()
                 }
                 when (backup) {
                     is SmsBackup -> writer.writeSmsMessage(backup)
@@ -150,10 +180,33 @@ class LockerManager(private val context: Context) {
 
             val restoredThreadId = firstBackup?.let { findRestoredThreadId(it) }
             if (restoredThreadId != null && restoredThreadId != 0L) {
-                context.conversationsDB.updateMailboxManuallyFiled(
-                    restoredThreadId,
-                    locked.previousMailbox
+                // The provider files restored messages under a NEW thread
+                // id, so no Room row exists for it yet: setting the
+                // mailbox on a missing row updates nothing, and the later
+                // sync files the fresh thread as contacts. Seed the row
+                // from the locked thread — same conversation, new id —
+                // with its previous mailbox, so the restore lands where
+                // the thread came from.
+                val lockedConv = context.conversationsDB.getConversationWithThreadId(threadId)
+                val restoredConv = lockedConv?.copy(
+                    threadId = restoredThreadId,
+                    mailbox = locked.previousMailbox,
+                    manuallyFiled = true,
+                    snippet = lastSnippet,
+                    date = lastDateSeconds
+                ) ?: Conversation(
+                    threadId = restoredThreadId,
+                    snippet = lastSnippet,
+                    date = lastDateSeconds,
+                    read = true,
+                    title = backupAddress(firstBackup),
+                    photoUri = "",
+                    isGroupConversation = false,
+                    phoneNumber = backupAddress(firstBackup),
+                    mailbox = locked.previousMailbox,
+                    manuallyFiled = true
                 )
+                context.conversationsDB.insertOrUpdate(restoredConv)
                 movePinIfNeeded(threadId, restoredThreadId)
             }
             context.conversationsDB.deleteThreadId(threadId)
@@ -214,6 +267,18 @@ class LockerManager(private val context: Context) {
         }
     }
 
+    /** The address a backup belongs to, for the fallback restored row. */
+    private fun backupAddress(backup: MessagesBackup?): String {
+        if (backup == null) {
+            return ""
+        }
+        return when (backup) {
+            is SmsBackup -> backup.address
+            is MmsBackup -> backup.addresses.firstOrNull { it.type == PduHeaders.FROM }?.address
+                ?: backup.addresses.firstOrNull()?.address ?: ""
+        }
+    }
+
     /** A pinned locked thread keeps its pin on the thread it restores to. */
     private fun movePinIfNeeded(fromThreadId: Long, toThreadId: Long) {
         try {
@@ -238,6 +303,12 @@ class LockerManager(private val context: Context) {
         }
         if (context.lockedMessagesDB.getById(messageId, isMMS) != null) {
             return true
+        }
+
+        // Same guard as lockThread: the delete half needs the
+        // default-SMS role, and storing first would half-lock the message.
+        if (!context.isDefaultSmsApp()) {
+            return false
         }
 
         return try {
