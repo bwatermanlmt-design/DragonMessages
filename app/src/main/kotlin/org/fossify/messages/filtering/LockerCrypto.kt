@@ -1,6 +1,5 @@
 package org.fossify.messages.filtering
 
-import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
@@ -42,9 +41,16 @@ object LockerCrypto {
 
     /** Encrypt [plaintext] under [key] with a fresh random IV. */
     fun encrypt(plaintext: ByteArray, key: SecretKey): EncryptedBlob {
-        val iv = ByteArray(IV_LENGTH).also { SecureRandom().nextBytes(it) }
         val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(TAG_LENGTH_BITS, iv))
+        // No caller IV: the provider generates one (12 bytes for GCM).
+        // A Keystore-backed key refuses a caller-provided IV
+        // (InvalidAlgorithmParameterException), so the IV must come from
+        // the provider — and the same code stays valid for a software key
+        // (the JVM tests use one). The generated IV is read back off the
+        // cipher and stored with the ciphertext.
+        cipher.init(Cipher.ENCRYPT_MODE, key)
+        val iv = cipher.iv
+            ?: throw IllegalStateException("LockerCrypto: no IV generated")
         return EncryptedBlob(iv, cipher.doFinal(plaintext))
     }
 
