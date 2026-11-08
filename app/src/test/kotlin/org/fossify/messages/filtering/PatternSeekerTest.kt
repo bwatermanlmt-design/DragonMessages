@@ -339,7 +339,7 @@ class PatternSeekerTest {
 
         // Every bigram hits ham, so none survives — but longer phrases come out clean.
         assertNull(proposals.firstOrNull { it.kind == SeekerKind.PHRASE && it.display == "\"big prize\"" })
-        val longer = proposals.firstOrNull { it.kind == SeekerKind.PHRASE && it.display == "\"win a big prize\"" }
+        val longer = proposals.firstOrNull { it.kind == SeekerKind.PHRASE && it.display == "\"a big prize today\"" }
         assertNotNull(longer)
         assertEquals(1, longer!!.seedMatches)
     }
@@ -390,17 +390,31 @@ class PatternSeekerTest {
 
     @Test
     fun andCombinationsCappedAtFive() {
+        // Every word appears in ham, so none qualifies alone — but the
+        // six pairs are clean, and only five survive the cap.
         val seed = listOf(
-            msg("+15551111111", "Alpha bravo charlie delta"),
-            msg("+15552222222", "Echo foxtrot golf hotel"),
-            msg("+15553333333", "India juliet kilo lima")
+            msg("+15551111111", "Red apple"),
+            msg("+15552222222", "Red banana"),
+            msg("+15553333333", "Blue cherry"),
+            msg("+15554444444", "Blue durian"),
+            msg("+15555555555", "Green elderberry"),
+            msg("+15556666666", "Green fig")
         )
-        val ham = listOf(msg("+15559876543", "Dinner at six"))
+        val ham = listOf(
+            msg("+15559876543", "Red car"),
+            msg("+15558765432", "Blue sky"),
+            msg("+15557654321", "Green grass"),
+            msg("+15556543210", "Apple pie"),
+            msg("+15555432109", "Banana bread"),
+            msg("+15554321098", "Cherry bomb"),
+            msg("+15553210987", "Durian smell"),
+            msg("+15552109876", "Elderberry wine"),
+            msg("+15551098765", "Fig leaf")
+        )
         val proposals = mine(seed, ham)
 
         val combos = proposals.filter { it.kind == SeekerKind.AND_COMBINATION }
-        assertTrue(combos.size <= 5)
-        assertTrue(combos.isNotEmpty())
+        assertEquals(5, combos.size)
     }
 
     // -- V2: single-word cap -----------------------------------------------------
