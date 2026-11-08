@@ -1,5 +1,6 @@
 package org.fossify.messages.adapters
 
+import android.content.Intent
 import android.view.Menu
 import org.fossify.commons.dialogs.ConfirmationDialog
 import org.fossify.commons.extensions.notificationManager
@@ -7,10 +8,13 @@ import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.commons.views.MyRecyclerView
 import org.fossify.messages.R
 import org.fossify.messages.activities.SimpleActivity
+import org.fossify.messages.activities.SuggestRulesActivity
 import org.fossify.messages.dialogs.SendToFolderDialog
 import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.extensions.filterAuditDB
+import org.fossify.messages.extensions.filterRulesDB
 import org.fossify.messages.extensions.deleteConversation
+import org.fossify.messages.filtering.FilingReason
 import org.fossify.messages.helpers.FilingReasonText
 import org.fossify.messages.helpers.FilterEvaluator
 import org.fossify.messages.helpers.refreshConversations
@@ -86,8 +90,36 @@ class QuarantinedConversationsAdapter(
                 null
             }
             val message = FilingReasonText.describe(activity, conversation, entry)
+            // Refine entry (pattern seeker): when a Spam rule filed this
+            // thread, offer to refine that rule — the misfiled thread
+            // becomes one more ham example for the same mining pass.
+            val reason = FilingReason.reason(conversation.manuallyFiled, conversation.mailbox, entry)
+            val refinableRule = if (reason is FilingReason.Reason.Filed && reason.mailbox == Mailbox.SPAM) {
+                try {
+                    activity.filterRulesDB.getAll()
+                        .firstOrNull { it.name == reason.ruleName && it.mailbox == Mailbox.SPAM }
+                } catch (e: Exception) {
+                    null
+                }
+            } else {
+                null
+            }
             activity.runOnUiThread {
-                ConfirmationDialog(activity, message) {}
+                if (refinableRule != null) {
+                    ConfirmationDialog(
+                        activity, message,
+                        positive = R.string.seeker_refine_button,
+                        negative = 0,
+                    ) {
+                        val intent = Intent(activity, SuggestRulesActivity::class.java).apply {
+                            putExtra(SuggestRulesActivity.EXTRA_REFINE_RULE_ID, refinableRule.id)
+                            putExtra(SuggestRulesActivity.EXTRA_REFINE_THREAD_ID, conversation.threadId)
+                        }
+                        activity.startActivity(intent)
+                    }
+                } else {
+                    ConfirmationDialog(activity, message) {}
+                }
                 finishActMode()
             }
         }

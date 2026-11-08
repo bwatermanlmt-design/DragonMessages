@@ -215,10 +215,36 @@
     <string name="rules_export">Export rules</string>
     <string name="rules_export_subtitle">Save the current rules to a file</string>
     <string name="rules_subtitle">Rules filter out to Spam or sort to folders. A rule fires on new messages; run it to file existing conversations.</string>
-    <!-- Landing page: the pattern seeker is not built yet, so its row says so plainly. -->
+    <!-- Landing page: the pattern seeker proposes rules from the Spam folder. -->
     <string name="suggest_rules">Suggest rules</string>
-    <string name="suggest_rules_subtitle">Propose rules from your Spam folder — you pick which become rules</string>
-    <string name="suggest_rules_coming_soon">Suggest rules is coming soon</string>
+    <string name="suggest_rules_subtitle">Propose rules from your Spam folder - you pick which become rules</string>
+    <string name="seeker_subtitle">Patterns found in your Spam folder that never matched a good message. Only the ones you tick become rules.</string>
+    <string name="seeker_loading">Looking for patterns...</string>
+    <string name="seeker_empty_no_spam">Nothing in Spam to learn from yet.</string>
+    <string name="seeker_empty_no_patterns">No safe patterns found - every pattern in Spam also matches a good message.</string>
+    <string name="seeker_create_rules_none">Tick a proposal to create its rule</string>
+    <plurals name="seeker_create_rules">
+        <item quantity="one">Create 1 rule</item>
+        <item quantity="other">Create %d rules</item>
+    </plurals>
+    <plurals name="seeker_rules_created">
+        <item quantity="one">1 rule created</item>
+        <item quantity="other">%d rules created</item>
+    </plurals>
+    <string name="seeker_pick_one">Tick at least one proposal first.</string>
+    <string name="seeker_refine_title">Refine this rule</string>
+    <string name="seeker_refine_subtitle">This rule filed a good message. The exception above carves a hole for its sender; the narrower patterns below rewrite the rule so it dodges that message.</string>
+    <string name="seeker_refine_empty">This rule no longer matches any Spam message.</string>
+    <string name="seeker_group_sender">Sender</string>
+    <string name="seeker_group_keyword">Words and links</string>
+    <string name="seeker_group_phrase">Phrases</string>
+    <string name="seeker_group_combination">Combinations</string>
+    <string name="seeker_replaces">Replaces: %1$s</string>
+    <string name="seeker_narrows">Narrows: %1$s</string>
+    <string name="seeker_exception_evidence">New rule above the broad one - this sender files to Not in Contacts instead</string>
+    <string name="seeker_evidence">%1$d spam - 0 ham</string>
+    <string name="seeker_example">%1$s: %2$s</string>
+    <string name="seeker_refine_button">Refine this rule</string>
     <!-- Recycle bin -->
     <string name="restore">Restore</string>
     <string name="restore_all_messages">Restore all messages</string>

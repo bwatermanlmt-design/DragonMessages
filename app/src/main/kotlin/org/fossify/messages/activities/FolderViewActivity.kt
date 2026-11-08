@@ -152,8 +152,7 @@ class FolderViewActivity : SimpleActivity() {
             saveRulesDocument.launch("messages-filter-rules$FILTER_RULES_EXPORT_EXTENSION")
         }
         binding.actionSuggestRulesHolder.setOnClickListener {
-            // The pattern seeker is not built yet: say so plainly.
-            toast(R.string.suggest_rules_coming_soon)
+            startActivity(Intent(this, SuggestRulesActivity::class.java))
         }
     }
 
