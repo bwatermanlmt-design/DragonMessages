@@ -65,18 +65,41 @@ data class SeekerProposal(
 )
 
 /**
- * The pattern seeker (spec: dragon-pattern-seeker-spec.md): mine the
+ * One word's two buckets: how many spam messages and how many ham
+ * messages contain it. A word is a keeper only when its ham count is
+ * zero — found in spam, never in ham.
+ */
+data class WordBucket(val spamCount: Int, val hamCount: Int)
+
+/**
+ * Pass 1 — the word pile: every unique word with its two buckets.
+ * This pile is the vocabulary for everything downstream.
+ */
+fun wordPile(seed: List<SeekerMessage>, ham: List<SeekerMessage>): Map<String, WordBucket> {
+    val spamCounts = seed.flatMap { PatternSeeker.tokens(it.body).toSet() }.groupingBy { it }.eachCount()
+    val hamCounts = ham.flatMap { PatternSeeker.tokens(it.body).toSet() }.groupingBy { it }.eachCount()
+    return (spamCounts.keys + hamCounts.keys).associateWith { word ->
+        WordBucket(spamCount = spamCounts[word] ?: 0, hamCount = hamCounts[word] ?: 0)
+    }
+}
  * Spam folder for patterns that never hit a good message, and propose
  * them as rules Ben picks. One mining pass, used twice — seek mines the
  * whole Spam folder, refine re-runs it with one more ham example and a
  * target rule.
  *
- * Safety bar is precision only: a candidate qualifies if ham hits = 0.
- * No coverage minimum — matching a single seed message is fine.
- * Simplest pattern that works wins: the ladder climbs from sender
- * numbers to single words to phrases to AND combinations, and a
- * candidate already covered by an existing rule with no improvement is
- * dropped, not proposed.
+ * V2 (2026-11-08): four passes, in the agreed order. Pass 1 builds the
+ * word pile — every unique word with its two buckets (spam count, ham
+ * count) — and everything downstream uses only that pile. Pass 2 builds
+ * sequential combos (phrases), lengthening until each has no ham hits.
+ * Pass 3 builds non-sequential combos (AND), adding words until no ham
+ * hits. Pass 4 is single words, at most ten, no ham hits. The safety
+ * bar is precision only: a candidate qualifies if ham hits = 0, and
+ * keepers are spam-only by the two buckets. Suggestions come most
+ * specific first (senders and domains, then phrases, then combos, then
+ * single words), most catches first inside each tier — and the list
+ * stays short: the caps are starting defaults, not fixed numbers.
+ * A candidate already covered by an existing rule with no improvement
+ * is dropped, not proposed.
  */
 object PatternSeeker {
 
@@ -89,14 +112,21 @@ object PatternSeeker {
     /** Lowest priority an exception rule may take: still below contacts (10). */
     const val EXCEPTION_PRIORITY_FLOOR = 11
 
-    /** Most proposals shown in one list, per group cap below. */
+    /** Most proposals shown in one list, backstop behind the per-tier caps. */
     const val MAX_PROPOSALS = 100
 
     private const val MAX_SENDER_PROPOSALS = 20
-    private const val MAX_KEYWORD_PROPOSALS = 40
+    private const val MAX_DOMAIN_PROPOSALS = 10
+    private const val MAX_KEYWORD_PROPOSALS = 10
     private const val MAX_PHRASE_PROPOSALS = 30
-    private const val MAX_COMBINATION_PROPOSALS = 20
+    private const val MAX_PHRASE_TOTAL = 10
+    private const val MAX_PHRASES_PER_GROUP = 2
+    private const val MAX_COMBINATION_PROPOSALS = 5
     private const val MAX_AND_WORDS = 40
+    private const val MAX_AND_TRIPLE_PAIRS = 20
+
+    /** Longest phrase built by the lengthening walk (bigrams up to 5-grams). */
+    private const val MAX_PHRASE_NGRAM = 5
 
     /** Words too short to mean anything on their own. */
     private const val MIN_WORD_LENGTH = 3
@@ -129,10 +159,11 @@ object PatternSeeker {
 
         val seedTokenSets = seed.map { tokens(it.body).toSet() }
         val seedTokenLists = seed.map { tokensAll(it.body) }
-        val seedNormalized = seed.map { normalizedBody(it.body) }
-        val hamTokenSet = ham.flatMap { tokens(it.body) }.toSet()
         val hamNormalized = ham.map { normalizedBody(it.body) }
         val hamBodies = ham.map { it.body.lowercase() }
+
+        // Pass 1 — the word pile: every unique word with its two buckets.
+        val pile = wordPile(seed, ham)
 
         val proposals = ArrayList<SeekerProposal>()
 
@@ -140,17 +171,17 @@ object PatternSeeker {
         // senders in contacts are skipped outright.
         proposals += senderProposals(seed, ham)
 
-        // Rung 1: single words.
-        val wordProposals = wordProposals(seed, seedTokenSets, hamTokenSet)
+        // Pass 4 (generated here, shown last): single words, from the pile.
+        val wordProposals = wordProposals(seed, seedTokenSets, pile)
         proposals += wordProposals
 
-        // Rung 2: phrases (bigrams and trigrams).
+        // Pass 2: phrases (bigrams up to 5-grams), lengthened until clean.
         proposals += phraseProposals(seed, seedTokenLists, hamNormalized)
 
-        // Link domains, grouped with keywords.
+        // Link domains, grouped with the senders at the top.
         proposals += domainProposals(seed, hamBodies)
 
-        // Rung 3: AND combinations, only from words that do not qualify
+        // Pass 3: AND combinations, only from words that do not qualify
         // alone — simplest pattern that works wins.
         val qualifyingWords = wordProposals.mapNotNull { it.rule.keyword }.toSet()
         proposals += andProposals(seed, seedTokenSets, ham, qualifyingWords)
@@ -248,16 +279,22 @@ object PatternSeeker {
             .take(MAX_SENDER_PROPOSALS)
     }
 
-    // -- Rung 1: single words ---------------------------------------------------
+    // -- Pass 4: single words --------------------------------------------------
 
+    /**
+     * Single words from the pile: a word is a keeper only when its ham
+     * bucket is empty. No cap here — [finish] picks the top ten after
+     * re-examination, preferring words that cover messages nothing
+     * above them covers.
+     */
     private fun wordProposals(
         seed: List<SeekerMessage>,
         seedTokenSets: List<Set<String>>,
-        hamTokenSet: Set<String>,
+        pile: Map<String, WordBucket>,
     ): List<SeekerProposal> {
         val docCount = seedTokenSets.flatten().groupingBy { it }.eachCount()
         return docCount.keys
-            .filter { it !in hamTokenSet }
+            .filter { (pile[it]?.hamCount ?: 0) == 0 }
             .map { word ->
                 val matching = seed.withIndex()
                     .filter { indexed -> word in seedTokenSets[indexed.index] }
@@ -279,11 +316,16 @@ object PatternSeeker {
                 )
             }
             .sortedWith(compareByDescending<SeekerProposal> { it.seedMatches }.thenBy { it.display })
-            .take(MAX_KEYWORD_PROPOSALS)
     }
 
-    // -- Rung 2: phrases --------------------------------------------------------
+    // -- Pass 2: phrases -------------------------------------------------------
 
+    /**
+     * Sequential combos: n-grams from length 2 up to [MAX_PHRASE_NGRAM].
+     * The lengthening walk is emergent — a short phrase with ham hits is
+     * dropped, while a longer phrase containing it may still come out
+     * clean — so only zero-ham phrases survive, longest included.
+     */
     private fun phraseProposals(
         seed: List<SeekerMessage>,
         seedTokenLists: List<List<String>>,
@@ -291,7 +333,7 @@ object PatternSeeker {
     ): List<SeekerProposal> {
         val phraseToIndices = LinkedHashMap<String, MutableSet<Int>>()
         for ((index, toks) in seedTokenLists.withIndex()) {
-            for (n in 2..3) {
+            for (n in 2..MAX_PHRASE_NGRAM) {
                 for (i in 0..toks.size - n) {
                     val window = toks.subList(i, i + n)
                     if (!hasSignal(window)) continue
@@ -355,11 +397,17 @@ object PatternSeeker {
                 )
             }
             .sortedWith(compareByDescending<SeekerProposal> { it.seedMatches }.thenBy { it.display })
-            .take(MAX_KEYWORD_PROPOSALS)
+            .take(MAX_DOMAIN_PROPOSALS)
     }
 
-    // -- Rung 3: AND combinations ----------------------------------------------
+    // -- Pass 3: AND combinations ----------------------------------------------
 
+    /**
+     * Non-sequential combos: pairs from words that do not qualify alone,
+     * then triples — a ham-hit pair extended with one more word, until
+     * clean. Only the highest-coverage ham-hit pairs are extended, so
+     * the walk stays cheap.
+     */
     private fun andProposals(
         seed: List<SeekerMessage>,
         seedTokenSets: List<Set<String>>,
@@ -386,29 +434,71 @@ object PatternSeeker {
                 }
             }
         }
-        return pairToIndices.entries
+        val cleanPairs = pairToIndices.entries
             .filter { (pair, _) ->
                 hamTokenSets.none { pair.first in it && pair.second in it }
             }
-            .map { (pair, indices) ->
-                val example = seed[indices.first()]
-                val regex = andRegex(pair.first, pair.second)
-                SeekerProposal(
-                    kind = SeekerKind.AND_COMBINATION,
-                    display = "\"${pair.first}\" AND \"${pair.second}\"",
-                    seedMatches = indices.size,
-                    hamMatches = 0,
-                    exampleSender = example.sender,
-                    exampleBody = example.body,
-                    rule = FilterRule(
-                        name = ruleName("\"${pair.first}\" AND \"${pair.second}\"", indices.size),
-                        priority = SEEKER_PRIORITY,
-                        keyword = regex,
-                        keywordRegex = true,
-                        mailbox = Mailbox.SPAM,
-                    ),
-                )
+        val dirtyPairs = pairToIndices.entries
+            .filter { (pair, _) ->
+                hamTokenSets.any { pair.first in it && pair.second in it }
             }
+            .sortedByDescending { it.value.size }
+            .take(MAX_AND_TRIPLE_PAIRS)
+        // Triples: extend each dirty pair with one more word; keep the
+        // ones that come out clean. Seed coverage comes from the pair's
+        // own indices, narrowed to messages holding the third word.
+        val tripleToIndices = LinkedHashMap<List<String>, MutableSet<Int>>()
+        for ((pair, pairIndices) in dirtyPairs) {
+            for (third in candidates) {
+                if (third == pair.first || third == pair.second) continue
+                val words = listOf(pair.first, pair.second, third).sorted()
+                if (tripleToIndices.containsKey(words)) continue
+                val indices = pairIndices.filter { idx -> third in seedTokenSets[idx] }.toMutableSet()
+                if (indices.isEmpty()) continue
+                if (hamTokenSets.none { tokenSet -> words.all { it in tokenSet } }) {
+                    tripleToIndices[words] = indices
+                }
+            }
+        }
+        val pairProposals = cleanPairs.map { (pair, indices) ->
+            val example = seed[indices.first()]
+            val regex = andRegex(pair.first, pair.second)
+            SeekerProposal(
+                kind = SeekerKind.AND_COMBINATION,
+                display = "\"${pair.first}\" AND \"${pair.second}\"",
+                seedMatches = indices.size,
+                hamMatches = 0,
+                exampleSender = example.sender,
+                exampleBody = example.body,
+                rule = FilterRule(
+                    name = ruleName("\"${pair.first}\" AND \"${pair.second}\"", indices.size),
+                    priority = SEEKER_PRIORITY,
+                    keyword = regex,
+                    keywordRegex = true,
+                    mailbox = Mailbox.SPAM,
+                ),
+            )
+        }
+        val tripleProposals = tripleToIndices.map { (words, indices) ->
+            val example = seed[indices.first()]
+            val display = words.joinToString(" AND ") { "\"$it\"" }
+            SeekerProposal(
+                kind = SeekerKind.AND_COMBINATION,
+                display = display,
+                seedMatches = indices.size,
+                hamMatches = 0,
+                exampleSender = example.sender,
+                exampleBody = example.body,
+                rule = FilterRule(
+                    name = ruleName(display, indices.size),
+                    priority = SEEKER_PRIORITY,
+                    keyword = andRegex(words),
+                    keywordRegex = true,
+                    mailbox = Mailbox.SPAM,
+                ),
+            )
+        }
+        return (pairProposals + tripleProposals)
             .sortedWith(compareByDescending<SeekerProposal> { it.seedMatches }.thenBy { it.display })
             .take(MAX_COMBINATION_PROPOSALS)
     }
@@ -416,6 +506,11 @@ object PatternSeeker {
     /** Two words that must both appear, as one regex the engine already understands. */
     fun andRegex(first: String, second: String): String {
         return "(?=.*${Regex.escape(first)})(?=.*${Regex.escape(second)})"
+    }
+
+    /** Three or more words that must all appear, as one lookahead regex. */
+    fun andRegex(words: List<String>): String {
+        return words.joinToString("") { "(?=.*${Regex.escape(it)})" }
     }
 
     // -- Replacement and drop-out ----------------------------------------------
@@ -427,8 +522,14 @@ object PatternSeeker {
      * catches nothing, apply the replacement rule — a proposal that
      * covers everything an existing Spam rule covers offers to replace
      * it; a proposal an existing rule already covers with no improvement
-     * is dropped — then group by type (sender, keyword/domain, phrase,
-     * combination), high coverage first within each group.
+     * is dropped — then assemble the tiers, most specific first:
+     * senders and domains, then phrases (top two per group, where a
+     * group is one coverage set, and ten phrases at most), then word
+     * combos (five at most), then single words (ten at most, most
+     * catches first — this tier is the re-examination step, a message
+     * nothing above matched gets its last chance here through its own
+     * words). Within each tier, most catches first; phrases break catch
+     * ties toward the shorter phrase, the broader catch inside the group.
      */
     private fun finish(
         proposals: List<SeekerProposal>,
@@ -436,7 +537,7 @@ object PatternSeeker {
         existingRules: List<FilterRule>,
     ): List<SeekerProposal> {
         val spamRules = existingRules.filter { it.enabled && it.mailbox == Mailbox.SPAM }
-        val kept = ArrayList<SeekerProposal>()
+        val kept = ArrayList<Pair<SeekerProposal, Set<Int>>>()
         for (proposal in proposals) {
             val coverage = proposalCoverage(proposal, seed)
             if (coverage.isEmpty()) continue
@@ -466,24 +567,44 @@ object PatternSeeker {
                 }
             }
             if (!drop) {
-                kept += if (replaces != null) honest.copy(replacesRule = replaces) else honest
+                kept += (if (replaces != null) honest.copy(replacesRule = replaces) else honest) to coverage
             }
         }
 
-        val groupOrder = mapOf(
-            SeekerKind.SENDER to 0,
-            SeekerKind.KEYWORD to 1,
-            SeekerKind.DOMAIN to 1,
-            SeekerKind.PHRASE to 2,
-            SeekerKind.AND_COMBINATION to 3,
-        )
-        return kept
+        val byCatches = compareByDescending<Pair<SeekerProposal, Set<Int>>> { it.first.seedMatches }
+            .thenBy { it.first.display }
+        val senders = kept.filter { it.first.kind == SeekerKind.SENDER }.sortedWith(byCatches)
+        val domains = kept.filter { it.first.kind == SeekerKind.DOMAIN }.sortedWith(byCatches)
+        val phrases = kept.filter { it.first.kind == SeekerKind.PHRASE }
+            .groupBy { it.second }
+            .values.flatMap { group ->
+                group.sortedWith(
+                    compareByDescending<Pair<SeekerProposal, Set<Int>>> { it.first.seedMatches }
+                        .thenBy { wordCount(it.first) }
+                        .thenBy { it.first.display }
+                ).take(MAX_PHRASES_PER_GROUP)
+            }
             .sortedWith(
-                compareBy<SeekerProposal> { groupOrder[it.kind] ?: 99 }
-                    .thenByDescending { it.seedMatches }
-                    .thenBy { it.display }
+                compareByDescending<Pair<SeekerProposal, Set<Int>>> { it.first.seedMatches }
+                    .thenBy { wordCount(it.first) }
+                    .thenBy { it.first.display }
             )
-            .take(MAX_PROPOSALS)
+            .take(MAX_PHRASE_TOTAL)
+        val combos = kept.filter { it.first.kind == SeekerKind.AND_COMBINATION }
+            .sortedWith(byCatches)
+            .take(MAX_COMBINATION_PROPOSALS)
+        // Single words last: most catches first, ten at most. This tier
+        // is the re-examination step — a message nothing above matched
+        // gets its last chance here, through its own words.
+        val keywords = kept.filter { it.first.kind == SeekerKind.KEYWORD }
+            .sortedWith(byCatches)
+            .take(MAX_KEYWORD_PROPOSALS)
+        return (senders + domains + phrases + combos + keywords).map { it.first }.take(MAX_PROPOSALS)
+    }
+
+    /** Words in a proposal's pattern, for the phrase tiebreak (shorter first). */
+    private fun wordCount(proposal: SeekerProposal): Int {
+        return proposal.rule.keyword?.trim()?.split(Regex("\\s+"))?.size ?: 0
     }
 
     /** Seed indices a proposal's rule would catch (its coverage). */
