@@ -10,6 +10,7 @@ import org.fossify.commons.extensions.notificationManager
 import org.fossify.commons.models.PhoneNumber
 import org.fossify.commons.models.SimpleContact
 import org.fossify.messages.extensions.conversationsDB
+import org.fossify.messages.filtering.LockerCrypto
 import org.fossify.messages.extensions.deleteMessage
 import org.fossify.messages.extensions.getNameAndPhotoFromPhoneNumber
 import org.fossify.messages.extensions.lockedMessagesDB
