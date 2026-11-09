@@ -62,9 +62,22 @@ object LockerGate {
      * once (MainActivity's load and its resume, back to back), and a
      * second prompt over the first would double-authenticate — so a
      * second authenticate() while one is up is a no-op.
+     *
+     * The flag must never stick: every way a prompt can go away
+     * (OK, Cancel button, Back, tap-outside, activity destroyed)
+     * resets it. A stuck flag silently turns the gate off for the
+     * life of the process — that exact bug shipped in the first
+     * 1.10.15 cut, when only the button callbacks reset it. The
+     * [authGeneration] below guards the dismiss callback: a
+     * wrong-code re-prompt starts a new prompt before the old
+     * dialog's dismiss fires, and the stale dismiss must not clear
+     * the new prompt's flag.
      */
     @Volatile
     private var authenticating = false
+
+    @Volatile
+    private var authGeneration = 0
 
     /** A gate pass just succeeded: the Locker is open from now. */
     fun markUnlocked() {
@@ -77,6 +90,7 @@ object LockerGate {
         lastUnlockedAtMillis = 0L
         lastLeftMessagesAtMillis = 0L
         authenticating = false
+        authGeneration = 0
     }
 
     /** The user left the messages UI (an activity paused). */
@@ -185,12 +199,24 @@ object LockerGate {
         val config = activity.config
         if (config.lockerGateMethod == METHOD_CODE && hasCode(config)) {
             authenticating = true
+            val generation = ++authGeneration
+            // Dismissing the dialog any other way (Back, tap-outside,
+            // activity destroyed) must also clear the flag — otherwise
+            // the gate silently never prompts again. The generation
+            // guard keeps a stale dismiss from clearing a re-prompt
+            // started by a wrong code.
+            val clearIfCurrent = {
+                if (authGeneration == generation) {
+                    authenticating = false
+                }
+            }
             showCodeEntryDialog(
                 activity,
                 onCancelled = {
                     authenticating = false
                     onCancelled()
-                }
+                },
+                onDismissed = clearIfCurrent
             ) { code ->
                 authenticating = false
                 if (verifyCode(config, code)) {
@@ -259,11 +285,29 @@ object LockerGate {
             }
             .build()
 
-        prompt.authenticate(promptInfo)
+        // If starting the prompt itself throws, the flag must not
+        // stick — every other exit already clears it.
+        try {
+            prompt.authenticate(promptInfo)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            authenticating = false
+            onCancelled()
+        }
     }
 
-    /** Ask for the current locker code. [onCode] runs with what was typed. */
-    fun showCodeEntryDialog(activity: BaseSimpleActivity, onCancelled: () -> Unit = {}, onCode: (String) -> Unit) {
+    /**
+     * Ask for the current locker code. [onCode] runs with what was typed.
+     * [onCancelled] runs on the Cancel button and on Back / tap-outside
+     * (the cancel listener); [onDismissed] runs on every dismiss, which
+     * also covers the dialog going away with its activity.
+     */
+    fun showCodeEntryDialog(
+        activity: BaseSimpleActivity,
+        onCancelled: () -> Unit = {},
+        onDismissed: () -> Unit = {},
+        onCode: (String) -> Unit
+    ) {
         val input = EditText(activity).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             hint = activity.getString(R.string.locker_code_hint)
@@ -282,6 +326,8 @@ object LockerGate {
             .setNegativeButton(android.R.string.cancel) { _, _ ->
                 onCancelled()
             }
+            .setOnCancelListener { onCancelled() }
+            .setOnDismissListener { onDismissed() }
             .show()
         input.requestFocus()
     }
