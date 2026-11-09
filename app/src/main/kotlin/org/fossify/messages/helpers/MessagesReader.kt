@@ -14,6 +14,7 @@ import org.fossify.commons.extensions.queryCursor
 import org.fossify.commons.helpers.isQPlus
 import org.fossify.commons.helpers.isRPlus
 import org.fossify.messages.extensions.getConversationIds
+import org.fossify.messages.extensions.isVCardMimeType
 import org.fossify.messages.models.MessagesBackup
 import org.fossify.messages.models.MmsAddress
 import org.fossify.messages.models.MmsBackup
@@ -275,8 +276,14 @@ class MessagesReader(private val context: Context) {
             val name = cursor.getStringValueOrNull(Mms.Part.NAME)
             val sequenceOrder = cursor.getIntValue(Mms.Part.SEQ)
             val text = cursor.getStringValueOrNull(Mms.Part.TEXT)
+            // A vCard's payload is stream bytes, not the TEXT column
+            // (see MmsPart.isNonText) — so its data must be
+            // Base64-encoded like every other media part. Storing it
+            // as raw text here made the unlock restore Base64-decode
+            // the text into binary garbage (1.10.16 verification: a
+            // 71-byte vCard came back as 40 garbage bytes).
             val data = when {
-                contentType.startsWith("text/") -> {
+                contentType.startsWith("text/") && !contentType.isVCardMimeType() -> {
                     usePart(partId) { stream ->
                         stream.readBytes().toString(Charsets.UTF_8)
                     }

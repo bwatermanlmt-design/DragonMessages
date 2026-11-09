@@ -149,10 +149,11 @@ class MessagesWriter(private val context: Context) {
                 if (partUri != null) {
                     if (mmsPart.isNonText()) {
                         // One seam for part bytes — see
-                        // MmsPart.mediaBytes. A vCard's data is raw
-                        // UTF-8 text, not Base64; decoding it as
-                        // Base64 wrote 40 garbage bytes for a 71-byte
-                        // vCard on the 1.10.16 emulator round trip.
+                        // MmsPart.mediaBytes. A vCard's data may be
+                        // raw UTF-8 text (rows locked before this
+                        // fix) or Base64 (everything since);
+                        // decoding raw text as Base64 once wrote 40
+                        // garbage bytes for a 71-byte vCard.
                         val bytes = mmsPart.mediaBytes()
                         if (bytes != null) {
                             contentResolver.openOutputStream(partUri).use {

@@ -655,9 +655,9 @@ class LockerManager(private val context: Context) {
      * getLockedMessages is reached solely from the gated thread view.
      */
     private fun materializeMediaPart(part: MmsPart, messageId: Long, index: Int): Attachment? {
-        // One seam for part bytes — see MmsPart.mediaBytes. A vCard's
-        // data is raw UTF-8 text, not Base64; decoding it as Base64
-        // yields garbage, which is exactly what unlock used to do.
+        // One seam for part bytes — see MmsPart.mediaBytes. It
+        // knows a vCard's data may be raw text (rows locked before
+        // this fix) or Base64 (everything since).
         val bytes = part.mediaBytes() ?: return null
         if (bytes.isEmpty()) {
             return null

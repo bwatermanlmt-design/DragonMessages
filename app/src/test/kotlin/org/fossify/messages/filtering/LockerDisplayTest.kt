@@ -100,12 +100,15 @@ class LockerDisplayTest {
     }
 
     @Test
-    fun vCardMediaBytesAreRawUtf8NotBase64() {
-        // The 1.10.16 emulator round trip caught this: writeMmsPart
-        // Base64-decoded a vCard's raw text, so a 71-byte vCard came
-        // back from unlock as 40 garbage bytes. mediaBytes is the
-        // one seam both the display and the restore use — a vCard's
-        // data is UTF-8 text, never Base64.
+    fun vCardMediaBytesHandlesRawText() {
+        // Rows locked by 1.10.11-1.10.15 stored a vCard's data as
+        // raw UTF-8 text (the reader then keyed on the "text/"
+        // prefix). mediaBytes must still read those correctly:
+        // raw text starts with "BEGIN:", and ":" is not a Base64
+        // character, so it can never be mistaken for Base64.
+        // (The Base64 branch cannot run in JVM unit tests —
+        // android.util.Base64 is a stub there — it is proven by
+        // the emulator lock/unlock round trip instead.)
         val text = "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Test Person\r\nTEL:+15557771016\r\nEND:VCARD\r\n"
         val vcard = part("text/vcard", text = null, data = text)
         val bytes = vcard.mediaBytes()

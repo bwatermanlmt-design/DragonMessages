@@ -72,21 +72,28 @@ data class MmsPart(
 
     /**
      * The raw bytes of this part's media payload, or null when there
-     * are none. Media payloads arrive Base64-encoded in [data] —
-     * except vCards, whose content type starts with "text/", so
-     * MessagesReader stored them as a UTF-8 string in data, not
-     * Base64. Decoding a vCard's raw text as Base64 yields binary
-     * garbage: on the 1.10.16 emulator round trip a 71-byte vCard
-     * came back from unlock as 40 garbage bytes, because
-     * writeMmsPart decoded unconditionally while the display path
-     * already knew the difference. Both the locked display and the
-     * unlock restore must use this one seam — never Base64.decode
-     * part data anywhere else.
+     * are none. Media payloads arrive Base64-encoded in [data] — the
+     * reader Base64-encodes every media part, vCards included, since
+     * a vCard's payload is stream bytes, not the TEXT column.
+     *
+     * One exception, for rows locked by 1.10.11-1.10.15 (and the
+     * unshipped 1.10.16 pre-fix build): those stored a vCard's data
+     * as raw UTF-8 text, because the reader then keyed on the
+     * "text/" prefix. A vCard's raw text always starts with
+     * "BEGIN:" — and ":" is not a Base64 character, so raw text
+     * can never be mistaken for Base64. When the data starts with
+     * "BEGIN:" it is raw text; otherwise it is Base64. That keeps
+     * already-locked vCards restoring correctly instead of coming
+     * back as the 40 garbage bytes Base64-decoding raw text
+     * produced (1.10.16 verification).
+     *
+     * Both the locked display and the unlock restore must use this
+     * one seam — never Base64.decode part data anywhere else.
      */
     fun mediaBytes(): ByteArray? {
         val raw = data ?: return null
         if (raw.isEmpty()) return null
-        return if (isVCard()) {
+        return if (isVCard() && raw.trimStart().startsWith("BEGIN:")) {
             raw.toByteArray(Charsets.UTF_8)
         } else {
             try {
