@@ -5,7 +5,6 @@ import android.content.Context
 import android.net.Uri
 import android.provider.Telephony.Mms
 import android.provider.Telephony.Sms
-import android.util.Base64
 import com.google.android.mms.pdu_alt.PduHeaders
 import com.klinker.android.send_message.Utils
 import org.fossify.commons.extensions.getLongValue
@@ -149,9 +148,16 @@ class MessagesWriter(private val context: Context) {
             try {
                 if (partUri != null) {
                     if (mmsPart.isNonText()) {
-                        contentResolver.openOutputStream(partUri).use {
-                            val arr = Base64.decode(mmsPart.data, Base64.DEFAULT)
-                            it!!.write(arr)
+                        // One seam for part bytes — see
+                        // MmsPart.mediaBytes. A vCard's data is raw
+                        // UTF-8 text, not Base64; decoding it as
+                        // Base64 wrote 40 garbage bytes for a 71-byte
+                        // vCard on the 1.10.16 emulator round trip.
+                        val bytes = mmsPart.mediaBytes()
+                        if (bytes != null) {
+                            contentResolver.openOutputStream(partUri).use {
+                                it!!.write(bytes)
+                            }
                         }
                     }
                 }

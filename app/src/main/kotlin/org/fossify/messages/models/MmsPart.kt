@@ -2,6 +2,7 @@ package org.fossify.messages.models
 
 import android.content.ContentValues
 import android.provider.Telephony
+import android.util.Base64
 import androidx.core.content.contentValuesOf
 import com.google.gson.annotations.SerializedName
 import kotlinx.serialization.Serializable
@@ -67,5 +68,32 @@ data class MmsPart(
             return true
         }
         return !(text != null || contentType.lowercase().startsWith("text") || contentType.lowercase() == "application/smil")
+    }
+
+    /**
+     * The raw bytes of this part's media payload, or null when there
+     * are none. Media payloads arrive Base64-encoded in [data] —
+     * except vCards, whose content type starts with "text/", so
+     * MessagesReader stored them as a UTF-8 string in data, not
+     * Base64. Decoding a vCard's raw text as Base64 yields binary
+     * garbage: on the 1.10.16 emulator round trip a 71-byte vCard
+     * came back from unlock as 40 garbage bytes, because
+     * writeMmsPart decoded unconditionally while the display path
+     * already knew the difference. Both the locked display and the
+     * unlock restore must use this one seam — never Base64.decode
+     * part data anywhere else.
+     */
+    fun mediaBytes(): ByteArray? {
+        val raw = data ?: return null
+        if (raw.isEmpty()) return null
+        return if (isVCard()) {
+            raw.toByteArray(Charsets.UTF_8)
+        } else {
+            try {
+                Base64.decode(raw, Base64.DEFAULT)
+            } catch (e: Exception) {
+                null
+            }
+        }
     }
 }

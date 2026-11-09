@@ -100,6 +100,27 @@ class LockerDisplayTest {
     }
 
     @Test
+    fun vCardMediaBytesAreRawUtf8NotBase64() {
+        // The 1.10.16 emulator round trip caught this: writeMmsPart
+        // Base64-decoded a vCard's raw text, so a 71-byte vCard came
+        // back from unlock as 40 garbage bytes. mediaBytes is the
+        // one seam both the display and the restore use — a vCard's
+        // data is UTF-8 text, never Base64.
+        val text = "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Test Person\r\nTEL:+15557771016\r\nEND:VCARD\r\n"
+        val vcard = part("text/vcard", text = null, data = text)
+        val bytes = vcard.mediaBytes()
+        assertTrue(bytes != null)
+        assertEquals(text, String(bytes!!, Charsets.UTF_8))
+        assertEquals(71, bytes.size)
+    }
+
+    @Test
+    fun vCardMediaBytesNullOrEmptyWhenNoData() {
+        assertEquals(null, part("text/vcard", text = null, data = null).mediaBytes())
+        assertEquals(null, part("text/vcard", text = null, data = "").mediaBytes())
+    }
+
+    @Test
     fun mediaExtensionComesFromContentTypeOnly() {
         assertEquals(".jpg", LockedMediaCache.extensionFor("image/jpeg"))
         assertEquals(".png", LockedMediaCache.extensionFor("image/png"))
