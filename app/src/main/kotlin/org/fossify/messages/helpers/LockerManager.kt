@@ -672,9 +672,8 @@ class LockerManager(private val context: Context) {
             mimetype = part.contentType,
             width = 0,
             height = 0,
-            filename = part.filename ?: part.name ?: "",
-            isLockedMedia = true
-        )
+            filename = part.filename ?: part.name ?: ""
+        ).apply { isLockedMedia = true }
     }
 
     private fun participantsFromAddress(address: String): ArrayList<SimpleContact> {

@@ -15,16 +15,20 @@ data class Attachment(
     @ColumnInfo(name = "mimetype") var mimetype: String,
     @ColumnInfo(name = "width") var width: Int,
     @ColumnInfo(name = "height") var height: Int,
-    @ColumnInfo(name = "filename") var filename: String,
+    @ColumnInfo(name = "filename") var filename: String
+) {
     /**
      * True when this attachment is decrypted locked media, served
-     * from LockedMediaCache for one gate session only. Never
-     * persisted (locked messages are never cached in Room): Glide
-     * must load it with DiskCacheStrategy.NONE and no memory cache,
-     * or the decoded bytes would outlive the re-lock on disk.
+     * from LockedMediaCache for one gate session only. A body
+     * property, not a constructor parameter — Room rejects @Ignore
+     * constructor parameters. Never persisted (locked messages are
+     * never cached in Room): Glide must load it with
+     * DiskCacheStrategy.NONE and no memory cache, or the decoded
+     * bytes would outlive the re-lock on disk. No code copies
+     * Attachment instances, so the flag is never lost to copy().
      */
-    @Ignore var isLockedMedia: Boolean = false
-) {
+    @Ignore
+    var isLockedMedia: Boolean = false
 
     fun getUri() = uriString.toUri()
 }
