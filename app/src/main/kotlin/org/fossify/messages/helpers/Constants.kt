@@ -111,6 +111,7 @@ const val FOLDER_SECTION_ORDER = "folder_section_order"
 const val LOCKER_GATE_METHOD = "locker_gate_method"
 const val LOCKER_CODE_HASH = "locker_code_hash"
 const val LOCKER_CODE_SALT = "locker_code_salt"
+const val LOCKER_AUTO_LOCK_SECONDS = "locker_auto_lock_seconds"
 const val EXPORT_LOCKED_MESSAGES = "export_locked_messages"
 const val FILTER_RULES_EXPORT_EXTENSION = ".json"
 

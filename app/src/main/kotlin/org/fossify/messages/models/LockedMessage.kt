@@ -13,6 +13,11 @@ import androidx.room.Entity
  * The row is keyed by the message's original provider id; [threadId]
  * and [date] (millis, from the backup) let the Locker view list and
  * order a thread's messages without decrypting anything.
+ *
+ * The ciphertext itself is NOT in this row: it lives in
+ * [LockedMessageChunk] pieces (see that class for why — a photo MMS
+ * blows past SQLite's 2MB CursorWindow and a single big row makes
+ * every read of the thread fail). [iv] is small and stays here.
  */
 @Entity(
     tableName = "locked_messages",
@@ -29,6 +34,4 @@ data class LockedMessage(
     val date: Long,
     /** Base64 of the random 12-byte GCM IV used for this message. */
     val iv: String,
-    /** Base64 of the AES/GCM ciphertext (tag included). */
-    val ciphertext: String,
 )

@@ -74,6 +74,7 @@ import org.fossify.messages.extensions.insertOrUpdateConversation
 import org.fossify.messages.extensions.lockedThreadsDB
 import org.fossify.messages.extensions.messagesDB
 import org.fossify.messages.helpers.FolderManager
+import org.fossify.messages.helpers.LockerGate
 import org.fossify.messages.helpers.MAILBOX_FILTER
 import org.fossify.messages.helpers.SEARCHED_MESSAGE_ID
 import org.fossify.messages.helpers.THREAD_ID
@@ -142,6 +143,21 @@ class MainActivity : SimpleActivity() {
 
     override fun onResume() {
         super.onResume()
+        // The Locker re-locks after the user has been away from
+        // messages for the auto-lock timeout: check before clearing
+        // the away marker, or a return after a long absence would
+        // silently clear it and skip the gate. A cancelled gate
+        // closes this list rather than leaving locked threads open.
+        if (mailboxFilter == Mailbox.LOCKER) {
+            LockerGate.authenticateIfNeeded(
+                this,
+                config.lockerAutoLockSeconds,
+                onUnlocked = { LockerGate.markBackInMessages() },
+                onCancelled = { finish() }
+            )
+        } else {
+            LockerGate.markBackInMessages()
+        }
         updateMenuColors()
         refreshMenuItems()
         setupMailboxTitle()
@@ -172,6 +188,7 @@ class MainActivity : SimpleActivity() {
 
     override fun onPause() {
         super.onPause()
+        LockerGate.markLeftMessages()
         storeStateVariables()
     }
 
@@ -291,9 +308,16 @@ class MainActivity : SimpleActivity() {
         // shared provider, so its list needs no SMS role: open it even
         // when another app is the default texter. Unlocking still needs
         // the role (only the default app may write messages back), and
-        // the unlock flow asks for it at that point instead.
+        // the unlock flow asks for it at that point instead. Opening
+        // the list itself runs the gate when the auto-lock has expired
+        // — a resume straight into the Locker must not skip it.
         if (mailboxFilter == Mailbox.LOCKER) {
-            askPermissions()
+            LockerGate.authenticateIfNeeded(
+                this,
+                config.lockerAutoLockSeconds,
+                onUnlocked = { askPermissions() },
+                onCancelled = { finish() }
+            )
             return
         }
         if (isQPlus()) {

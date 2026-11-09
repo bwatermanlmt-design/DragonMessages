@@ -232,11 +232,13 @@ class SettingsActivity : SimpleActivity() {
                 }
             )
             settingsExportLocked.isChecked = config.exportLockedMessages
+            settingsLockerAutoLock.text = getString(R.string.locker_auto_lock) + ": " +
+                autoLockLabel(config.lockerAutoLockSeconds)
         }
         refreshRows()
 
         settingsLockerGateHolder.setOnClickListener {
-            LockerGate.authenticate(this@SettingsActivity) {
+            LockerGate.authenticate(this@SettingsActivity, onUnlocked = {
                 val items = arrayListOf(
                     RadioItem(0, getString(R.string.locker_gate_device)),
                     RadioItem(1, getString(R.string.locker_gate_code))
@@ -264,21 +266,59 @@ class SettingsActivity : SimpleActivity() {
                         refreshRows()
                     }
                 }
-            }
+            })
         }
 
         settingsLockerCodeHolder.setOnClickListener {
-            LockerGate.authenticate(this@SettingsActivity) {
+            LockerGate.authenticate(this@SettingsActivity, onUnlocked = {
                 LockerGate.showSetCodeDialog(this@SettingsActivity) { code ->
                     LockerGate.setCode(config, code)
                     refreshRows()
                 }
-            }
+            })
+        }
+
+        // The auto-lock timeout (revision 13): loosening it weakens
+        // the gate, so changing it first requires the current method
+        // — the same rule as changing the method or the code.
+        settingsLockerAutoLockHolder.setOnClickListener {
+            LockerGate.authenticate(this@SettingsActivity, onUnlocked = {
+                val options = LockerGate.AUTO_LOCK_OPTIONS_SECONDS
+                val items = arrayListOf<RadioItem>().apply {
+                    options.forEach { seconds ->
+                        add(RadioItem(seconds, autoLockLabel(seconds)))
+                    }
+                }
+                val checked = if (options.contains(config.lockerAutoLockSeconds)) {
+                    config.lockerAutoLockSeconds
+                } else {
+                    LockerGate.DEFAULT_AUTO_LOCK_SECONDS
+                }
+                RadioGroupDialog(
+                    this@SettingsActivity,
+                    items,
+                    checked,
+                    R.string.locker_auto_lock
+                ) { selected ->
+                    config.lockerAutoLockSeconds = selected as Int
+                    refreshRows()
+                }
+            })
         }
 
         settingsExportLockedHolder.setOnClickListener {
             settingsExportLocked.toggle()
             config.exportLockedMessages = settingsExportLocked.isChecked
+        }
+    }
+
+    /** The auto-lock timeout as the setting row shows it. */
+    private fun autoLockLabel(seconds: Int): String {
+        return when (seconds) {
+            15 -> getString(R.string.locker_auto_lock_15_seconds)
+            60 -> getString(R.string.locker_auto_lock_1_minute)
+            300 -> getString(R.string.locker_auto_lock_5_minutes)
+            else -> getString(R.string.locker_auto_lock_30_seconds)
         }
     }
 

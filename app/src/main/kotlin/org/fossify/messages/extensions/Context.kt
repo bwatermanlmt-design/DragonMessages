@@ -67,6 +67,7 @@ import org.fossify.messages.interfaces.DraftsDao
 import org.fossify.messages.interfaces.FilterAuditDao
 import org.fossify.messages.interfaces.FilterRulesDao
 import org.fossify.messages.interfaces.FoldersDao
+import org.fossify.messages.interfaces.LockedMessageChunksDao
 import org.fossify.messages.interfaces.LockedMessagesDao
 import org.fossify.messages.interfaces.LockedThreadsDao
 import org.fossify.messages.interfaces.MessageAttachmentsDao
@@ -117,6 +118,9 @@ val Context.filterAuditDB: FilterAuditDao
 
 val Context.lockedMessagesDB: LockedMessagesDao
     get() = getMessagesDB().LockedMessagesDao()
+
+val Context.lockedMessageChunksDB: LockedMessageChunksDao
+    get() = getMessagesDB().LockedMessageChunksDao()
 
 val Context.lockedThreadsDB: LockedThreadsDao
     get() = getMessagesDB().LockedThreadsDao()

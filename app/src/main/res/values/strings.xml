@@ -141,6 +141,11 @@
     <string name="locker_set_code_row">Set locker code</string>
     <string name="locker_export_locked">Include locked messages in exports</string>
     <string name="locker_export_locked_summary">Locked messages are left out of exports unless this is on — an export that includes them holds them in the clear</string>
+    <string name="locker_auto_lock">Lock again after</string>
+    <string name="locker_auto_lock_15_seconds">15 seconds</string>
+    <string name="locker_auto_lock_30_seconds">30 seconds</string>
+    <string name="locker_auto_lock_1_minute">1 minute</string>
+    <string name="locker_auto_lock_5_minutes">5 minutes</string>
     <!-- Visible folder-view action rows (revision 8) -->
     <string name="new_folder_subtitle">Create a folder of your own</string>
     <string name="manage_folders_subtitle">Rename or delete folders, map contact labels to them</string>

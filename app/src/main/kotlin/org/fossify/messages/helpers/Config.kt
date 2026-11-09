@@ -243,6 +243,17 @@ class Config(context: Context) : BaseConfig(context) {
             .putString(LOCKER_CODE_SALT, lockerCodeSalt).apply()
 
     /**
+     * The Locker's auto-lock (revision 13, Ben's rule Nov 8 2026):
+     * seconds away from the messages UI after which the Locker asks
+     * for the gate again. Default 30s; the setting offers 15s, 30s,
+     * 1 minute, 5 minutes.
+     */
+    var lockerAutoLockSeconds: Int
+        get() = prefs.getInt(LOCKER_AUTO_LOCK_SECONDS, LockerGate.DEFAULT_AUTO_LOCK_SECONDS)
+        set(lockerAutoLockSeconds) = prefs.edit()
+            .putInt(LOCKER_AUTO_LOCK_SECONDS, lockerAutoLockSeconds).apply()
+
+    /**
      * Export opt-in (revision 11): locked messages are excluded from
      * exports by default — they live only encrypted in the Locker. When
      * on, an export includes them decrypted, in the clear.

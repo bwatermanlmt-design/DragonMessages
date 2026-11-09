@@ -16,12 +16,14 @@ import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.filtering.LockerCrypto
 import org.fossify.messages.extensions.deleteMessage
 import org.fossify.messages.extensions.getNameAndPhotoFromPhoneNumber
+import org.fossify.messages.extensions.lockedMessageChunksDB
 import org.fossify.messages.extensions.lockedMessagesDB
 import org.fossify.messages.extensions.lockedThreadsDB
 import org.fossify.messages.extensions.messagesDB
 import org.fossify.messages.messaging.MessagingUtils.Companion.ADDRESS_SEPARATOR
 import org.fossify.messages.models.Conversation
 import org.fossify.messages.models.LockedMessage
+import org.fossify.messages.models.LockedMessageChunk
 import org.fossify.messages.models.LockedThread
 import org.fossify.messages.models.Mailbox
 import org.fossify.messages.models.Message
@@ -91,19 +93,25 @@ class LockerManager(private val context: Context) {
             val reader = MessagesReader(context)
             val key = LockerKey.getOrCreateKey()
             val rows = mutableListOf<LockedMessage>()
+            val allChunks = mutableListOf<LockedMessageChunk>()
 
             reader.getSmsBackupsForThread(threadId).forEach { (id, backup) ->
-                rows.add(encryptBackup(backup, id, isMMS = false, threadId, backup.date, key))
+                val (row, chunks) = encryptBackup(backup, id, isMMS = false, threadId, backup.date, key)
+                rows.add(row)
+                allChunks.addAll(chunks)
             }
             reader.getMmsBackupsForThread(threadId).forEach { (id, backup) ->
                 // MMS dates are seconds; the store orders on millis.
-                rows.add(encryptBackup(backup, id, isMMS = true, threadId, backup.date * 1000L, key))
+                val (row, chunks) = encryptBackup(backup, id, isMMS = true, threadId, backup.date * 1000L, key)
+                rows.add(row)
+                allChunks.addAll(chunks)
             }
 
             // Store first, delete second: a failure here leaves the
             // thread untouched in the provider.
             if (rows.isNotEmpty()) {
                 context.lockedMessagesDB.insertAll(rows)
+                context.lockedMessageChunksDB.insertAll(allChunks)
             }
             context.lockedThreadsDB.insert(
                 LockedThread(
@@ -179,6 +187,18 @@ class LockerManager(private val context: Context) {
             }
 
             val restoredThreadId = firstBackup?.let { findRestoredThreadId(it) }
+            // Capture the locked row BEFORE deleting it: when the
+            // provider reuses the thread id on restore, the restored
+            // row IS this row, and deleting after seeding would wipe
+            // the just-seeded row — the 1.10.13 re-homing bug, which
+            // landed restored threads in Contacts instead of their
+            // previous mailbox.
+            val lockedConv = if (restoredThreadId != null && restoredThreadId != 0L) {
+                context.conversationsDB.getConversationWithThreadId(threadId)
+            } else {
+                null
+            }
+            context.conversationsDB.deleteThreadId(threadId)
             if (restoredThreadId != null && restoredThreadId != 0L) {
                 // The provider files restored messages under a NEW thread
                 // id, so no Room row exists for it yet: setting the
@@ -187,7 +207,6 @@ class LockerManager(private val context: Context) {
                 // from the locked thread — same conversation, new id —
                 // with its previous mailbox, so the restore lands where
                 // the thread came from.
-                val lockedConv = context.conversationsDB.getConversationWithThreadId(threadId)
                 val restoredConv = lockedConv?.copy(
                     threadId = restoredThreadId,
                     mailbox = locked.previousMailbox,
@@ -209,8 +228,10 @@ class LockerManager(private val context: Context) {
                 context.conversationsDB.insertOrUpdate(restoredConv)
                 movePinIfNeeded(threadId, restoredThreadId)
             }
-            context.conversationsDB.deleteThreadId(threadId)
 
+            // Chunks go first: their delete matches through the
+            // locked_messages rows, which the next line drops.
+            context.lockedMessageChunksDB.deleteByThread(threadId)
             context.lockedMessagesDB.deleteByThread(threadId)
             context.lockedThreadsDB.delete(threadId)
             writer.fixConversationDates()
@@ -314,7 +335,7 @@ class LockerManager(private val context: Context) {
         return try {
             val reader = MessagesReader(context)
             val key = LockerKey.getOrCreateKey()
-            val row = if (isMMS) {
+            val (row, chunks) = if (isMMS) {
                 val (id, backup) = reader.getMmsBackupById(messageId) ?: return false
                 encryptBackup(backup, id, isMMS = true, threadId, backup.date * 1000L, key)
             } else {
@@ -323,6 +344,7 @@ class LockerManager(private val context: Context) {
             }
 
             context.lockedMessagesDB.insert(row)
+            context.lockedMessageChunksDB.insertAll(chunks)
             context.deleteMessage(messageId, isMMS)
             context.conversationsDB.clearSnippet(threadId)
             // Keep the locked thread sorted by its latest arrival: the
@@ -444,26 +466,57 @@ class LockerManager(private val context: Context) {
         threadId: Long,
         dateMillis: Long,
         key: SecretKey
-    ): LockedMessage {
+    ): Pair<LockedMessage, List<LockedMessageChunk>> {
         val plaintext = json.encodeToString<MessagesBackup>(backup).toByteArray(Charsets.UTF_8)
         val blob = LockerCrypto.encrypt(plaintext, key)
-        return LockedMessage(
+        val ciphertext = Base64.encodeToString(blob.ciphertext, Base64.NO_WRAP)
+        val row = LockedMessage(
             id = providerId,
             threadId = threadId,
             isMMS = isMMS,
             date = dateMillis,
-            iv = Base64.encodeToString(blob.iv, Base64.NO_WRAP),
-            ciphertext = Base64.encodeToString(blob.ciphertext, Base64.NO_WRAP)
+            iv = Base64.encodeToString(blob.iv, Base64.NO_WRAP)
         )
+        return row to chunkCiphertext(providerId, isMMS, ciphertext)
     }
 
     private fun decryptBackup(row: LockedMessage, key: SecretKey): MessagesBackup {
+        // The pieces are loaded for this one message only, in order,
+        // and joined back into the exact Base64 the row used to carry.
+        val ciphertext = joinCiphertext(
+            context.lockedMessageChunksDB.getByMessage(row.id, row.isMMS).map { it.chunk }
+        )
         val blob = LockerCrypto.EncryptedBlob(
             iv = Base64.decode(row.iv, Base64.NO_WRAP),
-            ciphertext = Base64.decode(row.ciphertext, Base64.NO_WRAP)
+            ciphertext = Base64.decode(ciphertext, Base64.NO_WRAP)
         )
         val plaintext = LockerCrypto.decrypt(blob, key).toString(Charsets.UTF_8)
         return json.decodeFromString<MessagesBackup>(plaintext)
+    }
+
+    companion object {
+        /**
+         * One ciphertext piece is at most this many Base64 chars.
+         * 256KB a piece: a single row can never approach the 2MB
+         * CursorWindow, and the pieces of even a multi-MB photo page
+         * through it safely.
+         */
+        const val CIPHER_CHUNK_SIZE = 262144
+
+        /** Split a Base64 ciphertext into [CIPHER_CHUNK_SIZE] pieces. */
+        fun chunkCiphertext(id: Long, isMMS: Boolean, ciphertext: String): List<LockedMessageChunk> {
+            if (ciphertext.isEmpty()) {
+                return listOf(LockedMessageChunk(id, isMMS, 0, ""))
+            }
+            return ciphertext.chunked(CIPHER_CHUNK_SIZE).mapIndexed { index, piece ->
+                LockedMessageChunk(id, isMMS, index, piece)
+            }
+        }
+
+        /** Join pieces (in order) back into the original ciphertext. */
+        fun joinCiphertext(chunks: List<String>): String {
+            return chunks.joinToString("")
+        }
     }
 
     /**

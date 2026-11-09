@@ -68,4 +68,58 @@ class LockerGateTest {
             assertNull("zz".fromHex())
         }
     }
+
+    // Auto-lock session (revision 13): the Locker stays open while
+    // the user is in messages, and re-locks after the timeout away.
+
+    @Test
+    fun freshSessionNeedsAuth() {
+        LockerGate.resetSession()
+        assertTrue(LockerGate.needsAuth(timeoutSeconds = 30))
+    }
+
+    @Test
+    fun justUnlockedNeedsNoAuth() {
+        LockerGate.resetSession()
+        LockerGate.markUnlocked()
+        assertTrue(!LockerGate.needsAuth(timeoutSeconds = 30))
+    }
+
+    @Test
+    fun awayBrieflyNeedsNoAuth() {
+        LockerGate.resetSession()
+        LockerGate.markUnlocked()
+        LockerGate.markLeftMessages()
+        val now = System.currentTimeMillis()
+        assertTrue(!LockerGate.needsAuth(now + 10_000, timeoutSeconds = 30))
+    }
+
+    @Test
+    fun awayPastTimeoutNeedsAuth() {
+        LockerGate.resetSession()
+        LockerGate.markUnlocked()
+        LockerGate.markLeftMessages()
+        val now = System.currentTimeMillis()
+        assertTrue(LockerGate.needsAuth(now + 31_000, timeoutSeconds = 30))
+    }
+
+    @Test
+    fun timeoutIsHonored() {
+        LockerGate.resetSession()
+        LockerGate.markUnlocked()
+        LockerGate.markLeftMessages()
+        val now = System.currentTimeMillis()
+        assertTrue(LockerGate.needsAuth(now + 16_000, timeoutSeconds = 15))
+        assertTrue(!LockerGate.needsAuth(now + 16_000, timeoutSeconds = 300))
+    }
+
+    @Test
+    fun backInMessagesClearsTheAwayMarker() {
+        LockerGate.resetSession()
+        LockerGate.markUnlocked()
+        LockerGate.markLeftMessages()
+        LockerGate.markBackInMessages()
+        val now = System.currentTimeMillis()
+        assertTrue(!LockerGate.needsAuth(now + 60_000, timeoutSeconds = 30))
+    }
 }

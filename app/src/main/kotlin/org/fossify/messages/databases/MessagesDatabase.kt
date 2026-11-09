@@ -15,6 +15,7 @@ import org.fossify.messages.interfaces.DraftsDao
 import org.fossify.messages.interfaces.FilterAuditDao
 import org.fossify.messages.interfaces.FilterRulesDao
 import org.fossify.messages.interfaces.FoldersDao
+import org.fossify.messages.interfaces.LockedMessageChunksDao
 import org.fossify.messages.interfaces.LockedMessagesDao
 import org.fossify.messages.interfaces.LockedThreadsDao
 import org.fossify.messages.interfaces.MessageAttachmentsDao
@@ -28,6 +29,7 @@ import org.fossify.messages.models.FilterRule
 import org.fossify.messages.models.Folder
 import org.fossify.messages.models.LabelMapping
 import org.fossify.messages.models.LockedMessage
+import org.fossify.messages.models.LockedMessageChunk
 import org.fossify.messages.models.LockedThread
 import org.fossify.messages.models.Message
 import org.fossify.messages.models.MessageAttachment
@@ -50,9 +52,10 @@ import org.fossify.messages.models.SenderTags
         LabelMapping::class,
         SenderFiling::class,
         LockedMessage::class,
+        LockedMessageChunk::class,
         LockedThread::class
     ],
-    version = 19
+    version = 20
 )
 @TypeConverters(Converters::class)
 abstract class MessagesDatabase : RoomDatabase() {
@@ -76,6 +79,8 @@ abstract class MessagesDatabase : RoomDatabase() {
     abstract fun FoldersDao(): FoldersDao
 
     abstract fun LockedMessagesDao(): LockedMessagesDao
+
+    abstract fun LockedMessageChunksDao(): LockedMessageChunksDao
 
     abstract fun LockedThreadsDao(): LockedThreadsDao
 
@@ -110,6 +115,7 @@ abstract class MessagesDatabase : RoomDatabase() {
                             .addMigrations(MIGRATION_16_17)
                             .addMigrations(MIGRATION_17_18)
                             .addMigrations(MIGRATION_18_19)
+                            .addMigrations(MIGRATION_19_20)
                             .build()
                     }
                 }
@@ -323,6 +329,58 @@ abstract class MessagesDatabase : RoomDatabase() {
                     execSQL("ALTER TABLE filter_rules ADD COLUMN has_image INTEGER")
                     execSQL("ALTER TABLE filter_rules ADD COLUMN senders_json TEXT")
                     execSQL("ALTER TABLE filter_rules ADD COLUMN sender_contains_json TEXT")
+                }
+            }
+        }
+
+        private val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.apply {
+                    // Revision 13 Locker: the ciphertext leaves the
+                    // locked_messages row for 256KB pieces in
+                    // locked_message_chunks. A full-size photo MMS is
+                    // several MB, and a single row that big makes every
+                    // SELECT * of the thread throw
+                    // SQLiteBlobTooBigException (2MB CursorWindow) — the
+                    // 1.10.12 failure on Ben's phone. Every step here is
+                    // pure SQL: the oversized row is never read whole
+                    // into Kotlin (no CursorWindow is ever involved), so
+                    // the migration rescues exactly the stranded shape.
+                    execSQL(
+                        "CREATE TABLE IF NOT EXISTS `locked_message_chunks` " +
+                            "(`id` INTEGER NOT NULL, `is_mms` INTEGER NOT NULL, " +
+                            "`chunk_index` INTEGER NOT NULL, `chunk` TEXT NOT NULL, " +
+                            "PRIMARY KEY(`id`, `is_mms`, `chunk_index`))"
+                    )
+                    // Split each ciphertext into 256KB slices. The
+                    // recursive CTE counts up to the most slices any row
+                    // needs; a row shorter than one slice yields one
+                    // piece, and an empty table yields none.
+                    execSQL(
+                        "WITH RECURSIVE chunk_no(n) AS (" +
+                            "SELECT 0 UNION ALL SELECT n + 1 FROM chunk_no " +
+                            "WHERE n + 1 < (SELECT COALESCE(MAX((length(`ciphertext`) + 262143) / 262144), 0) " +
+                            "FROM `locked_messages`)) " +
+                            "INSERT INTO `locked_message_chunks` (`id`, `is_mms`, `chunk_index`, `chunk`) " +
+                            "SELECT `id`, `is_mms`, n, substr(`ciphertext`, n * 262144 + 1, 262144) " +
+                            "FROM `locked_messages`, chunk_no " +
+                            "WHERE n < (length(`ciphertext`) + 262143) / 262144"
+                    )
+                    // Rebuild locked_messages without the ciphertext
+                    // column, copying only the small columns — again
+                    // pure SQL, the big column is never read.
+                    execSQL(
+                        "CREATE TABLE IF NOT EXISTS `locked_messages_new` " +
+                            "(`id` INTEGER NOT NULL, `thread_id` INTEGER NOT NULL, " +
+                            "`is_mms` INTEGER NOT NULL, `date` INTEGER NOT NULL, " +
+                            "`iv` TEXT NOT NULL, PRIMARY KEY(`id`, `is_mms`))"
+                    )
+                    execSQL(
+                        "INSERT INTO `locked_messages_new` (`id`, `thread_id`, `is_mms`, `date`, `iv`) " +
+                            "SELECT `id`, `thread_id`, `is_mms`, `date`, `iv` FROM `locked_messages`"
+                    )
+                    execSQL("DROP TABLE `locked_messages`")
+                    execSQL("ALTER TABLE `locked_messages_new` RENAME TO `locked_messages`")
                 }
             }
         }

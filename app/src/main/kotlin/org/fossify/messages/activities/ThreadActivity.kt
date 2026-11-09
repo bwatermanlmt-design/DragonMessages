@@ -166,6 +166,8 @@ import org.fossify.messages.helpers.CAPTURE_VIDEO_INTENT
 import org.fossify.messages.helpers.FILE_SIZE_NONE
 import org.fossify.messages.helpers.IS_LAUNCHED_FROM_SHORTCUT
 import org.fossify.messages.helpers.IS_RECYCLE_BIN
+import org.fossify.messages.helpers.LockerGate
+import org.fossify.messages.helpers.LockerManager
 import org.fossify.messages.helpers.MESSAGES_LIMIT
 import org.fossify.messages.helpers.PICK_CONTACT_INTENT
 import org.fossify.messages.helpers.PICK_DOCUMENT_INTENT
@@ -216,6 +218,8 @@ class ThreadActivity : SimpleActivity() {
     private var currentSIMCardIndex = 0
     private var isActivityVisible = false
     private var refreshedSinceSent = false
+    /** Set in onCreate (off the main thread): this thread lives in the Locker. */
+    private var isLockedThread = false
     private var threadItems: List<ThreadItem> = emptyList()
     private var bus: EventBus? = null
     private var conversation: Conversation? = null
@@ -278,14 +282,60 @@ class ThreadActivity : SimpleActivity() {
         bus = EventBus.getDefault()
         bus!!.register(this)
 
-        loadConversation()
-        setupAttachmentPickerView()
-        hideAttachmentPicker()
-        maybeSetupRecycleBinView()
+        // A locked thread opens behind the gate: its content must
+        // never load (or flash) before the gate passes. The locked
+        // check runs off the main thread — Room forbids main-thread
+        // queries — and the thread only starts once it answers.
+        val startThread = {
+            loadConversation()
+            setupAttachmentPickerView()
+            hideAttachmentPicker()
+            maybeSetupRecycleBinView()
+        }
+        ensureBackgroundThread {
+            isLockedThread = try {
+                LockerManager(this).isThreadLocked(threadId)
+            } catch (_: Exception) {
+                false
+            }
+            runOnUiThread {
+                if (isLockedThread) {
+                    LockerGate.authenticateIfNeeded(
+                        this,
+                        config.lockerAutoLockSeconds,
+                        onUnlocked = {
+                            LockerGate.markBackInMessages()
+                            startThread()
+                        },
+                        onCancelled = { finish() }
+                    )
+                } else {
+                    startThread()
+                }
+            }
+        }
     }
 
     override fun onResume() {
         super.onResume()
+        // A locked thread re-locks after the user has been away for
+        // the auto-lock timeout. The content stays hidden until the
+        // gate answers, so a return after a long absence never flashes
+        // locked messages before prompting.
+        if (isLockedThread) {
+            LockerGate.authenticateIfNeeded(
+                this,
+                config.lockerAutoLockSeconds,
+                onUnlocked = {
+                    LockerGate.markBackInMessages()
+                    showThreadContent()
+                },
+                onCancelled = { finish() }
+            )
+        } else {
+            LockerGate.markBackInMessages()
+            showThreadContent()
+        }
         setupTopAppBar(
             topAppBar = binding.threadAppbar,
             navigationIcon = NavigationIcon.Arrow,
@@ -323,6 +373,10 @@ class ThreadActivity : SimpleActivity() {
 
     override fun onPause() {
         super.onPause()
+        LockerGate.markLeftMessages()
+        if (isLockedThread) {
+            hideThreadContent()
+        }
         saveDraftMessage()
         bus?.post(Events.RefreshConversations())
         isActivityVisible = false
@@ -884,6 +938,18 @@ class ThreadActivity : SimpleActivity() {
 
         messages = (older + messageSnapshot).toSortedMessages()
         return older
+    }
+
+    /** Hide the thread's content while the gate is pending or the user is away. */
+    private fun hideThreadContent() {
+        binding.threadMessagesList.visibility = View.INVISIBLE
+        binding.messageHolder.root.visibility = View.INVISIBLE
+    }
+
+    /** Show the thread's content once the gate has passed. */
+    private fun showThreadContent() {
+        binding.threadMessagesList.visibility = View.VISIBLE
+        binding.messageHolder.root.visibility = View.VISIBLE
     }
 
     private fun loadConversation() {

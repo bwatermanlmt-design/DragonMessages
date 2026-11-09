@@ -36,6 +36,95 @@ object LockerGate {
     /** A code shorter than this is not worth setting. */
     const val MIN_CODE_LENGTH = 4
 
+    /** The auto-lock default: re-lock 30s after leaving messages. */
+    const val DEFAULT_AUTO_LOCK_SECONDS = 30
+
+    /** The auto-lock choices the setting offers, in seconds. */
+    val AUTO_LOCK_OPTIONS_SECONDS = intArrayOf(15, 30, 60, 300)
+
+    /**
+     * The gate session (revision 13, Ben's rule Nov 8 2026): the Locker
+     * stays open while the user is in the messages UI, and re-locks
+     * once they have been away for the auto-lock timeout. Process
+     * memory only — a dead process means locked, which fails closed.
+     * [lastUnlockedAtMillis] is 0 until the first successful gate pass
+     * in this process; [lastLeftMessagesAtMillis] is 0 while the user
+     * is looking at messages.
+     */
+    @Volatile
+    private var lastUnlockedAtMillis: Long = 0L
+
+    @Volatile
+    private var lastLeftMessagesAtMillis: Long = 0L
+
+    /**
+     * A gate prompt is already on screen. Two entry points can ask at
+     * once (MainActivity's load and its resume, back to back), and a
+     * second prompt over the first would double-authenticate — so a
+     * second authenticate() while one is up is a no-op.
+     */
+    @Volatile
+    private var authenticating = false
+
+    /** A gate pass just succeeded: the Locker is open from now. */
+    fun markUnlocked() {
+        lastUnlockedAtMillis = System.currentTimeMillis()
+        lastLeftMessagesAtMillis = 0L
+    }
+
+    /** Tests only: forget the session, as if the process just started. */
+    fun resetSession() {
+        lastUnlockedAtMillis = 0L
+        lastLeftMessagesAtMillis = 0L
+        authenticating = false
+    }
+
+    /** The user left the messages UI (an activity paused). */
+    fun markLeftMessages() {
+        if (lastUnlockedAtMillis != 0L) {
+            lastLeftMessagesAtMillis = System.currentTimeMillis()
+        }
+    }
+
+    /** The user is back in the messages UI. */
+    fun markBackInMessages() {
+        lastLeftMessagesAtMillis = 0L
+    }
+
+    /**
+     * Does opening the Locker need the gate now? Yes when the gate
+     * never passed in this process, or when the user has been away
+     * from messages longer than [timeoutSeconds]. Pure in its inputs
+     * (apart from the session it reads), so unit-tests run it on the JVM.
+     */
+    fun needsAuth(nowMillis: Long = System.currentTimeMillis(), timeoutSeconds: Int = DEFAULT_AUTO_LOCK_SECONDS): Boolean {
+        if (lastUnlockedAtMillis == 0L) {
+            return true
+        }
+        val leftAt = lastLeftMessagesAtMillis
+        return leftAt != 0L && nowMillis - leftAt > timeoutSeconds * 1000L
+    }
+
+    /**
+     * Run the gate only when [needsAuth] says so; otherwise run
+     * [onUnlocked] straight away. [onCancelled] runs when the user
+     * backs out of the gate (or it errors) — the caller closes the
+     * Locker UI then, so a cancelled gate never leaves locked content
+     * on screen.
+     */
+    fun authenticateIfNeeded(
+        activity: BaseSimpleActivity,
+        timeoutSeconds: Int,
+        onUnlocked: () -> Unit,
+        onCancelled: () -> Unit = {}
+    ) {
+        if (needsAuth(timeoutSeconds = timeoutSeconds)) {
+            authenticate(activity, onUnlocked, onCancelled)
+        } else {
+            onUnlocked()
+        }
+    }
+
     fun method(config: Config): String {
         return config.lockerGateMethod
     }
@@ -89,35 +178,54 @@ object LockerGate {
      * yet, the device gate stands in — a code method with no code must
      * never open the Locker on its own.
      */
-    fun authenticate(activity: BaseSimpleActivity, onUnlocked: () -> Unit) {
+    fun authenticate(activity: BaseSimpleActivity, onUnlocked: () -> Unit, onCancelled: () -> Unit = {}) {
+        if (authenticating) {
+            return
+        }
         val config = activity.config
         if (config.lockerGateMethod == METHOD_CODE && hasCode(config)) {
-            showCodeEntryDialog(activity) { code ->
+            authenticating = true
+            showCodeEntryDialog(
+                activity,
+                onCancelled = {
+                    authenticating = false
+                    onCancelled()
+                }
+            ) { code ->
+                authenticating = false
                 if (verifyCode(config, code)) {
+                    markUnlocked()
                     onUnlocked()
                 } else {
                     activity.toast(R.string.locker_wrong_code)
-                    authenticate(activity, onUnlocked)
+                    authenticate(activity, onUnlocked, onCancelled)
                 }
             }
         } else {
-            authenticateWithDevice(activity, onUnlocked)
+            authenticateWithDevice(activity, onUnlocked, onCancelled)
         }
     }
 
     /** The device gate: biometric, or the device credential as fallback. */
-    fun authenticateWithDevice(activity: BaseSimpleActivity, onUnlocked: () -> Unit) {
+    fun authenticateWithDevice(activity: BaseSimpleActivity, onUnlocked: () -> Unit, onCancelled: () -> Unit = {}) {
+        if (authenticating) {
+            return
+        }
+        authenticating = true
         val prompt = BiometricPrompt(
             activity,
             ContextCompat.getMainExecutor(activity),
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     super.onAuthenticationSucceeded(result)
+                    authenticating = false
+                    markUnlocked()
                     onUnlocked()
                 }
 
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                     super.onAuthenticationError(errorCode, errString)
+                    authenticating = false
                     // Cancelling just returns to where the user was; real
                     // errors are worth a word.
                     if (errorCode != BiometricPrompt.ERROR_USER_CANCELED &&
@@ -125,6 +233,9 @@ object LockerGate {
                     ) {
                         activity.toast(errString.toString())
                     }
+                    // Either way the gate did not pass, so the caller
+                    // closes the Locker UI instead of leaving it open.
+                    onCancelled()
                 }
             }
         )
@@ -152,7 +263,7 @@ object LockerGate {
     }
 
     /** Ask for the current locker code. [onCode] runs with what was typed. */
-    fun showCodeEntryDialog(activity: BaseSimpleActivity, onCode: (String) -> Unit) {
+    fun showCodeEntryDialog(activity: BaseSimpleActivity, onCancelled: () -> Unit = {}, onCode: (String) -> Unit) {
         val input = EditText(activity).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             hint = activity.getString(R.string.locker_code_hint)
@@ -168,7 +279,9 @@ object LockerGate {
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 onCode(input.text.toString())
             }
-            .setNegativeButton(android.R.string.cancel, null)
+            .setNegativeButton(android.R.string.cancel) { _, _ ->
+                onCancelled()
+            }
             .show()
         input.requestFocus()
     }

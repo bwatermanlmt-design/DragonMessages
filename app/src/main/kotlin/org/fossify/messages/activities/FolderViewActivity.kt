@@ -567,10 +567,14 @@ class FolderViewActivity : SimpleActivity() {
 
     private fun unlockLockerThenOpen() {
         // The gate is the user's choice: device unlock, or the app-only
-        // code. Either way, opening the Locker runs it first.
-        LockerGate.authenticate(this) {
-            openMailbox(Mailbox.LOCKER)
-        }
+        // code. Opening the Locker runs it when the auto-lock has
+        // expired — within the timeout after leaving messages, the
+        // Locker is still open and no second prompt appears.
+        LockerGate.authenticateIfNeeded(
+            this,
+            config.lockerAutoLockSeconds,
+            onUnlocked = { openMailbox(Mailbox.LOCKER) }
+        )
     }
 
     private companion object {
