@@ -594,15 +594,106 @@ class RuleEngineTest {
         assertEquals(false, roundTripped.manuallyFiled)
     }
 
+    // region hasImage condition (revision 12)
+
     @Test
-    fun `an old file without the new conditions parses with nulls`() {
+    fun `hasImage true matches only messages with an image`() {
+        val rule = FilterRule(name = "Images to Spam", priority = 1, hasImage = true, mailbox = Mailbox.SPAM)
+        assertTrue(RuleEngine.matches(rule, facts().copy(hasImage = true)))
+        assertFalse(RuleEngine.matches(rule, facts().copy(hasImage = false)))
+    }
+
+    @Test
+    fun `hasImage false matches every SMS and every imageless MMS`() {
+        val rule = FilterRule(name = "No image to Spam", priority = 1, hasImage = false, mailbox = Mailbox.SPAM)
+        assertTrue(RuleEngine.matches(rule, facts().copy(hasImage = false)))
+        assertFalse(RuleEngine.matches(rule, facts().copy(hasImage = true)))
+    }
+
+    @Test
+    fun `hasImage null means either - the condition does not constrain`() {
+        val rule = FilterRule(name = "Keyword only", priority = 1, keyword = "hello", hasImage = null, mailbox = Mailbox.SPAM)
+        assertTrue(RuleEngine.matches(rule, facts(body = "hello there").copy(hasImage = true)))
+        assertTrue(RuleEngine.matches(rule, facts(body = "hello there").copy(hasImage = false)))
+        assertFalse(RuleEngine.matches(rule, facts(body = "goodbye").copy(hasImage = true)))
+    }
+
+    @Test
+    fun `hasImage combines under ANY like every other condition`() {
+        val rule = FilterRule(
+            name = "Image or keyword", priority = 1, keyword = "prize", hasImage = true,
+            conditionMode = RuleEngine.CONDITION_MODE_ANY, mailbox = Mailbox.SPAM
+        )
+        assertTrue(RuleEngine.matches(rule, facts(body = "hello").copy(hasImage = true)))
+        assertTrue(RuleEngine.matches(rule, facts(body = "prize inside").copy(hasImage = false)))
+        assertFalse(RuleEngine.matches(rule, facts(body = "hello").copy(hasImage = false)))
+    }
+
+    // region sender lists (revision 12)
+
+    @Test
+    fun `senders_json matches any listed number`() {
+        val rule = FilterRule(
+            name = "Senders", priority = 1,
+            sendersJson = RuleEngine.stringListToJson(listOf("+14805550100", "+14805550101")),
+            senderExact = "+14805550100", mailbox = Mailbox.SPAM
+        )
+        assertTrue(RuleEngine.matches(rule, facts(sender = "+14805550101")))
+        assertTrue(RuleEngine.matches(rule, facts(sender = "4805550100")))
+        assertFalse(RuleEngine.matches(rule, facts(sender = "+14805550102")))
+    }
+
+    @Test
+    fun `sender_contains_json matches any listed substring in sender or sender name`() {
+        val rule = FilterRule(
+            name = "Contains", priority = 1,
+            senderContainsJson = RuleEngine.stringListToJson(listOf("bank", "prize")),
+            senderContains = "bank", mailbox = Mailbox.SPAM
+        )
+        assertTrue(RuleEngine.matches(rule, facts(sender = "+14805550137").copy(senderName = "First Bank")))
+        assertTrue(RuleEngine.matches(rule, facts(sender = "prize-winner@example.com")))
+        assertFalse(RuleEngine.matches(rule, facts(sender = "+442071234567")))
+    }
+
+    @Test
+    fun `legacy single sender still works when no list is set`() {
+        val rule = FilterRule(name = "Single", priority = 1, senderExact = "+14805550100", mailbox = Mailbox.SPAM)
+        assertTrue(RuleEngine.matches(rule, facts(sender = "4805550100")))
+        assertFalse(RuleEngine.matches(rule, facts(sender = "+14805550101")))
+    }
+
+    @Test
+    fun `new fields survive an export and reimport round trip`() {
+        val rule = FilterRule(
+            name = "images and senders", priority = 1, hasImage = true,
+            sendersJson = RuleEngine.stringListToJson(listOf("+14805550100", "+14805550101")),
+            senderExact = "+14805550100",
+            senderContainsJson = RuleEngine.stringListToJson(listOf("bank", "prize")),
+            senderContains = "bank", mailbox = Mailbox.SPAM
+        )
+        val ruleSet = listOf(rule).toRuleSet(emptyList())
+        val text = FilterRulesExporter.json.encodeToString(FilterRuleSet.serializer(), ruleSet)
+        val parsed = FilterRulesImporter.parseRuleSet(text.byteInputStream())
+        assertEquals(ruleSet, parsed)
+        val roundTripped = parsed!!.rules.single().toEntity()
+        assertEquals(true, roundTripped.hasImage)
+        assertEquals(listOf("+14805550100", "+14805550101"), RuleEngine.effectiveSenders(roundTripped))
+        assertEquals("+14805550100", roundTripped.senderExact)
+        assertEquals(listOf("bank", "prize"), RuleEngine.effectiveSenderContains(roundTripped))
+        assertEquals("bank", roundTripped.senderContains)
+    }
+
+    @Test
+    fun `an old file without the new fields parses with nulls and empty lists`() {
         val text = """{"version": 1, "rules": [{"name": "old", "mailbox": "spam", "keyword": "hello"}]}"""
         val parsed = FilterRulesImporter.parseRuleSet(text.byteInputStream())
         val rule = parsed!!.rules.single()
-        assertNull(rule.repliedTo)
-        assertNull(rule.manuallyFiled)
-        assertNull(rule.toEntity().repliedTo)
-        assertNull(rule.toEntity().manuallyFiled)
+        assertNull(rule.hasImage)
+        assertTrue(rule.senders.isEmpty())
+        assertTrue(rule.senderContains.isEmpty())
+        assertNull(rule.toEntity().hasImage)
+        assertNull(rule.toEntity().sendersJson)
+        assertNull(rule.toEntity().senderContainsJson)
     }
 
     // endregion

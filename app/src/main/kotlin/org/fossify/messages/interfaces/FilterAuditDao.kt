@@ -18,4 +18,18 @@ interface FilterAuditDao {
 
     @Query("SELECT * FROM filter_audit_log WHERE sender = :sender ORDER BY timestamp DESC, id DESC LIMIT 1")
     fun getLatestForSender(sender: String): FilterAuditEntry?
+
+    /**
+     * Firings per rule name, for proposal evidence (the rule adjuster).
+     * Counts are by name, so two rules sharing a name share one count —
+     * the adjuster says so on the row when that applies.
+     */
+    @Query("SELECT rule_name AS ruleName, COUNT(*) AS firingCount FROM filter_audit_log GROUP BY rule_name")
+    fun countByRuleName(): List<RuleNameCount>
 }
+
+/** One row of [FilterAuditDao.countByRuleName]: a rule name and how often it fired. */
+data class RuleNameCount(
+    val ruleName: String,
+    val firingCount: Int
+)

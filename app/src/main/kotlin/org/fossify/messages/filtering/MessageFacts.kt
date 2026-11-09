@@ -69,6 +69,14 @@ data class MessageFacts(
      * context-free evaluations.
      */
     val manuallyFiled: Boolean = false,
+    /**
+     * The message carries an image part (revision 12): the "Has an
+     * image" rule condition reads this fact. True only for MMS with a
+     * part whose content type starts with `image/`; SMS never has an
+     * image, so this is false for every SMS. Defaults to false for
+     * context-free evaluations.
+     */
+    val hasImage: Boolean = false,
 )
 
 /** The outcome of evaluating the rule set against a message. */

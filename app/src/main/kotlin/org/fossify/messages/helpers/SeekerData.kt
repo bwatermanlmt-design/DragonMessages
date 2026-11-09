@@ -5,6 +5,7 @@ import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.extensions.filterRulesDB
 import org.fossify.messages.extensions.messagesDB
 import org.fossify.messages.filtering.SeekerMessage
+import org.fossify.messages.filtering.isImageContentType
 import org.fossify.messages.helpers.FilterEvaluator
 import org.fossify.messages.models.FilterRule
 import org.fossify.messages.models.Mailbox
@@ -57,6 +58,13 @@ object SeekerData {
                     body = message.body,
                     senderInContacts = inContacts,
                     repliedTo = repliedTo,
+                    // The stored attachments say whether this message
+                    // carries an image; SMS never does.
+                    hasImage = if (message.isMMS) {
+                        message.attachment?.attachments?.any { isImageContentType(it.mimetype) } ?: false
+                    } else {
+                        false
+                    },
                 )
                 when (conversation.mailbox) {
                     Mailbox.SPAM -> seed += seekerMessage
@@ -87,6 +95,11 @@ object SeekerData {
             body = latest.body,
             senderInContacts = FilterEvaluator.isInContacts(context, latest.senderPhoneNumber),
             repliedTo = FilterEvaluator.hasOutgoingMessage(context, threadId),
+            hasImage = if (latest.isMMS) {
+                latest.attachment?.attachments?.any { isImageContentType(it.mimetype) } ?: false
+            } else {
+                false
+            },
         )
     }
 }

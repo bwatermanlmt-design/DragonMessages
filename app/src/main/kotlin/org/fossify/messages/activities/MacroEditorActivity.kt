@@ -47,6 +47,14 @@ class MacroEditorActivity : SimpleActivity() {
     private var macroId: Long = 0
     private var targetMailbox: String = Mailbox.CONTACTS
 
+    /**
+     * The loaded rule carries a merged sender list (several exact
+     * senders, or several sender substrings): the list is view-only in
+     * v1 — the editor shows it and never rewrites it. Set at load time.
+     */
+    private var senderContainsLocked = false
+    private var loadedHasSenderList = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
@@ -74,6 +82,7 @@ class MacroEditorActivity : SimpleActivity() {
             binding.macroLinkEither.isChecked = true
             binding.macroRepliedEither.isChecked = true
             binding.macroHandEither.isChecked = true
+            binding.macroImageEither.isChecked = true
             binding.ruleMatchAll.isChecked = true
             binding.macroAutomaticCheckbox.beVisibleIf(false)
             updateTargetLabel()
@@ -122,6 +131,31 @@ class MacroEditorActivity : SimpleActivity() {
                     true -> binding.macroHandYes.isChecked = true
                     false -> binding.macroHandNo.isChecked = true
                     null -> binding.macroHandEither.isChecked = true
+                }
+                when (macro.hasImage) {
+                    true -> binding.macroImageYes.isChecked = true
+                    false -> binding.macroImageNo.isChecked = true
+                    null -> binding.macroImageEither.isChecked = true
+                }
+                // Merged sender lists are view-only in v1: show them,
+                // never rewrite them. A multi-entry exact-sender list
+                // gets its own line (the editor has no exact-sender
+                // field); a multi-entry substring list fills the
+                // substring field, disabled, so saving cannot clobber it.
+                val senders = RuleEngine.effectiveSenders(macro)
+                val containsList = RuleEngine.effectiveSenderContains(macro)
+                loadedHasSenderList = senders.isNotEmpty() || containsList.isNotEmpty()
+                if (senders.size > 1) {
+                    binding.macroSendersMergedValue.beVisibleIf(true)
+                    binding.macroSendersMergedValue.text = getString(
+                        R.string.macro_senders_merged,
+                        senders.joinToString(", ")
+                    )
+                }
+                if (containsList.size > 1) {
+                    senderContainsLocked = true
+                    binding.macroSenderContainsEdittext.setText(containsList.joinToString(", "))
+                    binding.macroSenderContainsEdittext.isEnabled = false
                 }
                 if (macro.conditionMode == RuleEngine.CONDITION_MODE_ANY) {
                     binding.ruleMatchAny.isChecked = true
@@ -216,6 +250,11 @@ class MacroEditorActivity : SimpleActivity() {
             R.id.macro_hand_no -> false
             else -> null
         }
+        val hasImage = when (binding.macroImageGroup.checkedRadioButtonId) {
+            R.id.macro_image_yes -> true
+            R.id.macro_image_no -> false
+            else -> null
+        }
         val conditionMode = when (binding.ruleMatchGroup.checkedRadioButtonId) {
             R.id.rule_match_any -> RuleEngine.CONDITION_MODE_ANY
             else -> RuleEngine.CONDITION_MODE_ALL
@@ -224,7 +263,8 @@ class MacroEditorActivity : SimpleActivity() {
 
         if (senderContains == null && keywords.isEmpty() && senderClass == null &&
             senderInContacts == null && containsLink == null &&
-            repliedTo == null && manuallyFiled == null
+            repliedTo == null && manuallyFiled == null && hasImage == null &&
+            !loadedHasSenderList
         ) {
             toast(R.string.macro_needs_a_criterion)
             return
@@ -246,11 +286,28 @@ class MacroEditorActivity : SimpleActivity() {
             } else {
                 existing?.macroAutomatic ?: false
             }
+            // A locked (multi-entry) substring list is preserved
+            // untouched; a single-entry list stays in sync with the
+            // edited value, the same trick keywordsJson uses with keyword.
+            val senderContainsValue: String?
+            val senderContainsJsonValue: String?
+            if (senderContainsLocked) {
+                senderContainsValue = existing?.senderContains
+                senderContainsJsonValue = existing?.senderContainsJson
+            } else {
+                senderContainsValue = senderContains
+                senderContainsJsonValue = if (senderContains != null && existing?.senderContainsJson != null) {
+                    RuleEngine.stringListToJson(listOf(senderContains))
+                } else {
+                    null
+                }
+            }
             val rule = (existing ?: FilterRule(name = name, mailbox = targetMailbox)).copy(
                 name = name,
                 enabled = existing?.enabled ?: true,
                 priority = existing?.priority ?: DEFAULT_RULE_PRIORITY,
-                senderContains = senderContains,
+                senderContains = senderContainsValue,
+                senderContainsJson = senderContainsJsonValue,
                 senderInContacts = senderInContacts,
                 keyword = keywords.firstOrNull(),
                 keywordsJson = if (keywords.isNotEmpty()) RuleEngine.keywordsToJson(keywords) else null,
@@ -260,6 +317,7 @@ class MacroEditorActivity : SimpleActivity() {
                 senderClass = senderClass,
                 repliedTo = repliedTo,
                 manuallyFiled = manuallyFiled,
+                hasImage = hasImage,
                 mailbox = targetMailbox,
                 isMacro = existing?.isMacro ?: false,
                 macroAutomatic = automatic

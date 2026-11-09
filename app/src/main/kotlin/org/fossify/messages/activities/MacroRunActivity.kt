@@ -97,7 +97,8 @@ class MacroRunActivity : SimpleActivity() {
                     currentMailbox = conversation.mailbox,
                     manuallyFiled = conversation.manuallyFiled,
                     senderBlocked = FilterEvaluator.isSenderBlocked(this, conversation.phoneNumber),
-                    isGroupConversation = conversation.isGroupConversation
+                    isGroupConversation = conversation.isGroupConversation,
+                    hasImage = FilterEvaluator.latestInboundHasImage(this, conversation.threadId)
                 )
             }
 

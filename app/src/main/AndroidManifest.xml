@@ -202,6 +202,13 @@
             android:parentActivityName=".activities.FolderViewActivity" />
 
         <activity
+            android:name=".activities.TidyRulesActivity"
+            android:configChanges="orientation"
+            android:exported="false"
+            android:label="@string/tidy_rules"
+            android:parentActivityName=".activities.MacrosActivity" />
+
+        <activity
             android:name=".activities.MacroEditorActivity"
             android:configChanges="orientation"
             android:exported="false"

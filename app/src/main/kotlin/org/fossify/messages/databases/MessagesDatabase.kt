@@ -52,7 +52,7 @@ import org.fossify.messages.models.SenderTags
         LockedMessage::class,
         LockedThread::class
     ],
-    version = 18
+    version = 19
 )
 @TypeConverters(Converters::class)
 abstract class MessagesDatabase : RoomDatabase() {
@@ -109,6 +109,7 @@ abstract class MessagesDatabase : RoomDatabase() {
                             .addMigrations(MIGRATION_15_16)
                             .addMigrations(MIGRATION_16_17)
                             .addMigrations(MIGRATION_17_18)
+                            .addMigrations(MIGRATION_18_19)
                             .build()
                     }
                 }
@@ -306,6 +307,22 @@ abstract class MessagesDatabase : RoomDatabase() {
                     execSQL(
                         "CREATE TABLE IF NOT EXISTS `locked_threads` (`thread_id` INTEGER NOT NULL, `previous_mailbox` TEXT NOT NULL, `locked_at` INTEGER NOT NULL, PRIMARY KEY(`thread_id`))"
                     )
+                }
+            }
+        }
+
+        private val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.apply {
+                    // Revision 12 rule adjuster: three new nullable rule
+                    // columns, all null by default — every existing rule
+                    // is untouched and behaves exactly as before. No
+                    // defaults in the SQL: the entity declares the
+                    // columns nullable with no default, so Room's schema
+                    // validation passes on upgraded installs.
+                    execSQL("ALTER TABLE filter_rules ADD COLUMN has_image INTEGER")
+                    execSQL("ALTER TABLE filter_rules ADD COLUMN senders_json TEXT")
+                    execSQL("ALTER TABLE filter_rules ADD COLUMN sender_contains_json TEXT")
                 }
             }
         }

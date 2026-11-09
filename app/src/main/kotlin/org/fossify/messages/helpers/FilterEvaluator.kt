@@ -67,6 +67,8 @@ object FilterEvaluator {
      * Evaluate one arrival. [ocrText] is recognized image text (revision
      * 9 OCR): keyword rules match against it like the body, but it is
      * never stored, shown, or logged — it lives only for this evaluation.
+     * [hasImage] is whether the arrival carries an image part (MMS only;
+     * SMS never has one) — the "has an image" rule condition reads it.
      */
     fun evaluateIncoming(
         context: Context,
@@ -74,7 +76,8 @@ object FilterEvaluator {
         body: String,
         channel: String,
         threadId: Long,
-        ocrText: String = ""
+        ocrText: String = "",
+        hasImage: Boolean = false
     ): RuleVerdict {
         FilterRuleSeeder.seedIfNeeded(context)
 
@@ -88,7 +91,7 @@ object FilterEvaluator {
         // state are conditions like any other now (revision 10). A
         // thread counts as hand-filed when its thread-level flag is set
         // OR a sender-level filing record exists for its sender.
-        val baseFacts = buildFacts(context, sender, body, ocrText)
+        val baseFacts = buildFacts(context, sender, body, ocrText, hasImage)
         val facts = baseFacts.copy(
             repliedTo = engaged,
             manuallyFiled = conversation?.manuallyFiled == true || baseFacts.senderFiledMailbox != null
@@ -136,7 +139,13 @@ object FilterEvaluator {
     }
 
     /** Everything the engine and precedence need to know about one message. */
-    private fun buildFacts(context: Context, sender: String, body: String, ocrText: String = ""): MessageFacts {
+    private fun buildFacts(
+        context: Context,
+        sender: String,
+        body: String,
+        ocrText: String = "",
+        hasImage: Boolean = false
+    ): MessageFacts {
         val inContacts = isSenderInContacts(context, sender)
         val labels = if (inContacts) contactLabels(context, sender) else emptyList()
         val businessLabel = businessLabelOf(labels)
@@ -157,7 +166,8 @@ object FilterEvaluator {
                 LabelHomes.homeFor(labels, businessLabel, labelMappings(context))
             } else {
                 null
-            }
+            },
+            hasImage = hasImage
         )
     }
 
@@ -318,7 +328,19 @@ object FilterEvaluator {
             engaged = hasOutgoingMessage(context, conversation.threadId),
             hasInboundMessage = latestInbound != null,
             senderBlocked = isSenderBlocked(context, judgedSender),
-            facts = buildFacts(context, judgedSender, judgedBody)
+            // The image fact is judged on the thread's most recent
+            // inbound message: an SMS latest means no image; an MMS
+            // latest means a parts query for that MMS.
+            facts = buildFacts(
+                context,
+                judgedSender,
+                judgedBody,
+                hasImage = if (latestMms != null && (latestSms == null || latestMms.dateMillis >= latestSms.dateMillis)) {
+                    mmsHasImagePart(context, latestMms.mmsId)
+                } else {
+                    false
+                }
+            )
         )
 
         return when (val decision = RetroFiler.decide(retroFacts, context.filterRulesDB.getAllEnabledForEvaluation())) {
@@ -378,7 +400,13 @@ object FilterEvaluator {
     }
 
     /** One inbound message of a thread, as the retro pass sees it. */
-    private data class InboundMessage(val sender: String, val body: String, val dateMillis: Long)
+    private data class InboundMessage(
+        val sender: String,
+        val body: String,
+        val dateMillis: Long,
+        /** The provider MMS id, for an MMS latest — the parts query needs it. Null for SMS. */
+        val mmsId: Long? = null
+    )
 
     /** The thread's most recent inbound SMS, or null if it has none. */
     private fun latestInboundSms(context: Context, threadId: Long): InboundMessage? {
@@ -437,7 +465,8 @@ object FilterEvaluator {
                         sender = context.getMMSSender(cursor.getLong(0)),
                         body = "",
                         // The MMS provider stores dates in seconds.
-                        dateMillis = cursor.getLong(1) * 1000
+                        dateMillis = cursor.getLong(1) * 1000,
+                        mmsId = cursor.getLong(0)
                     )
                 } else {
                     null
@@ -446,6 +475,38 @@ object FilterEvaluator {
         } catch (e: Exception) {
             null
         }
+    }
+
+    /**
+     * Whether the MMS with this provider id has any part with an image/*
+     * content type (the shared "has an image" test, on provider parts).
+     * A lookup failure answers false: no image by accident.
+     */
+    fun mmsHasImagePart(context: Context, mmsId: Long): Boolean {
+        return try {
+            context.contentResolver.query(
+                Uri.parse("content://mms/$mmsId/part"),
+                arrayOf(Telephony.Mms.Part.CONTENT_TYPE),
+                "${Telephony.Mms.Part.CONTENT_TYPE} LIKE ?",
+                arrayOf("image/%"),
+                null
+            )?.use { cursor -> cursor.count > 0 } ?: false
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Whether the thread's most recent inbound message carries an image
+     * part: an SMS latest means no image; an MMS latest means a parts
+     * query for that MMS. The macro-run path judges the same way as the
+     * retro pass, through this one helper.
+     */
+    fun latestInboundHasImage(context: Context, threadId: Long): Boolean {
+        val latestSms = latestInboundSms(context, threadId)
+        val latestMms = latestInboundMms(context, threadId) ?: return false
+        if (latestSms != null && latestSms.dateMillis > latestMms.dateMillis) return false
+        return mmsHasImagePart(context, latestMms.mmsId)
     }
 
     private fun isSenderInContacts(context: Context, sender: String): Boolean {

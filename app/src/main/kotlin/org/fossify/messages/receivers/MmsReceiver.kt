@@ -23,6 +23,7 @@ import org.fossify.messages.extensions.showLockerWarningNotification
 import org.fossify.messages.extensions.showReceivedMessageNotification
 import org.fossify.messages.extensions.updateConversationArchivedStatus
 import org.fossify.messages.filtering.OcrGate
+import org.fossify.messages.filtering.isImageContentType
 import org.fossify.messages.helpers.FilterEvaluator
 import org.fossify.messages.helpers.LockerManager
 import org.fossify.messages.helpers.MmsOcr
@@ -97,14 +98,20 @@ class MmsReceiver : MmsReceivedReceiver() {
         // Revision 9 OCR runs first, so keyword rules can catch
         // image-only texts — but only for strangers with images and
         // little text, never for contacts, and never past the budget.
-        val ocrText = extractOcrText(context, mms, address)
+        // The image fact is computed once here and shared: OCR gating
+        // reads it, and the rule engine's "has an image" condition reads
+        // the same value (SMS arrivals never reach this path, so the
+        // default false there stays correct).
+        val hasImage = mms.attachment?.attachments?.any { isImageContentType(it.mimetype) } ?: false
+        val ocrText = extractOcrText(context, mms, address, hasImage)
         val verdict = FilterEvaluator.evaluateIncoming(
             context = context,
             sender = address,
             body = mms.body,
             channel = FilterAuditEntry.CHANNEL_MMS,
             threadId = threadId,
-            ocrText = ocrText
+            ocrText = ocrText,
+            hasImage = hasImage
         )
 
         when {
@@ -174,15 +181,14 @@ class MmsReceiver : MmsReceivedReceiver() {
      * stored, shown in the notification, or logged: the notification
      * below still uses the real body.
      */
-    private fun extractOcrText(context: Context, mms: Message, address: String): String {
+    private fun extractOcrText(context: Context, mms: Message, address: String, hasImage: Boolean): String {
         val attachments = mms.attachment?.attachments ?: return ""
-        val hasImage = attachments.any { it.mimetype.startsWith("image/") }
         if (!OcrGate.shouldRunOcr(FilterEvaluator.isInContacts(context, address), mms.body, hasImage)) {
             return ""
         }
         val deadline = SystemClock.elapsedRealtime() + OcrGate.TOTAL_BUDGET_MS
         val texts = ArrayList<String>()
-        attachments.filter { it.mimetype.startsWith("image/") }
+        attachments.filter { isImageContentType(it.mimetype) }
             .take(OcrGate.MAX_IMAGES)
             .forEach { attachment ->
                 val remaining = deadline - SystemClock.elapsedRealtime()
@@ -209,7 +215,7 @@ class MmsReceiver : MmsReceivedReceiver() {
     private fun lockerWarningKind(mms: Message): Int {
         val attachments = mms.attachment?.attachments ?: return R.string.locker_kind_text
         return when {
-            attachments.any { it.mimetype.startsWith("image/") } -> R.string.locker_kind_photo
+            attachments.any { isImageContentType(it.mimetype) } -> R.string.locker_kind_photo
             attachments.any { it.mimetype.startsWith("video/") } -> R.string.locker_kind_video
             else -> R.string.locker_kind_text
         }

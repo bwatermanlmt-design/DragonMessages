@@ -69,6 +69,9 @@ class MacrosActivity : SimpleActivity() {
         binding.newMacroButton.setOnClickListener {
             startActivity(Intent(this, MacroEditorActivity::class.java))
         }
+        binding.tidyRulesButton.setOnClickListener {
+            startActivity(Intent(this, TidyRulesActivity::class.java))
+        }
         binding.importRulesButton.setOnClickListener {
             getRulesContent.launch(arrayOf(messagesFileType))
         }
@@ -156,11 +159,23 @@ class MacrosActivity : SimpleActivity() {
     /** A one-line, plain-language reading of the rule's criteria and destination. */
     private fun summarize(rule: FilterRule): String {
         val parts = ArrayList<String>()
-        rule.senderContains?.let { parts += "sender: $it" }
+        val senders = RuleEngine.effectiveSenders(rule)
+        if (senders.size > 1) {
+            parts += "senders: " + senders.joinToString(", ")
+        }
+        val containsList = RuleEngine.effectiveSenderContains(rule)
+        if (containsList.size > 1) {
+            parts += "sender: " + containsList.joinToString(", ")
+        } else {
+            rule.senderContains?.let { parts += "sender: $it" }
+        }
         val keywords = RuleEngine.effectiveKeywords(rule)
         if (keywords.isNotEmpty()) {
             parts += "message: " + keywords.joinToString(", ") +
                 if (rule.keywordRegex) " (pattern)" else ""
+        }
+        rule.hasImage?.let { hasImage ->
+            parts += getString(if (hasImage) R.string.macro_has_image_yes else R.string.macro_has_image_no).lowercase()
         }
         rule.senderClass?.let { senderClass ->
             parts += getString(

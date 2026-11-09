@@ -14,6 +14,14 @@ data class SeekerMessage(
     val body: String,
     val senderInContacts: Boolean,
     val repliedTo: Boolean,
+    /**
+     * The message carries an image part (revision 12): read off its
+     * stored attachments at load time. SMS never has one. The refine
+     * pass re-evaluates the target rule against these messages, so a
+     * target carrying a "has an image" condition is judged on the real
+     * fact, never the false default.
+     */
+    val hasImage: Boolean = false,
 )
 
 /** What kind of pattern a proposal carries. */
@@ -633,6 +641,7 @@ object PatternSeeker {
             body = message.body,
             senderInContacts = message.senderInContacts,
             repliedTo = message.repliedTo,
+            hasImage = message.hasImage,
         )
         return RuleEngine.matches(rule, facts)
     }

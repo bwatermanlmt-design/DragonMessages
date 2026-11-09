@@ -48,6 +48,19 @@ data class FilterRule(
     // flag or sender-level record). Existing rules keep null (any).
     @ColumnInfo(name = "replied_to") var repliedTo: Boolean? = null,
     @ColumnInfo(name = "manually_filed") var manuallyFiled: Boolean? = null,
+    // Revision 12 (rule adjuster): "has an image" - null means "either",
+    // exactly like the other Boolean conditions. SMS never has an image,
+    // so true only ever matches MMS with an image/* part.
+    @ColumnInfo(name = "has_image") var hasImage: Boolean? = null,
+    // Revision 12: several exact senders per rule, as a JSON array string
+    // (mirrors keywordsJson). When set, the sender condition matches if
+    // ANY listed number matches (OR within the set). [senderExact] stays
+    // as the legacy single number and is kept in sync with the first
+    // entry, so older readers still see something.
+    @ColumnInfo(name = "senders_json") var sendersJson: String? = null,
+    // Revision 12: several sender substrings per rule, same mechanism as
+    // [sendersJson]. [senderContains] stays in sync with the first entry.
+    @ColumnInfo(name = "sender_contains_json") var senderContainsJson: String? = null,
 
     // Action.
     @ColumnInfo(name = "mailbox") var mailbox: String,

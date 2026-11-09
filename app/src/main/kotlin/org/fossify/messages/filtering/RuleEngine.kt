@@ -55,15 +55,19 @@ object RuleEngine {
      */
     fun matches(rule: FilterRule, facts: MessageFacts): Boolean {
         val results = ArrayList<Boolean>()
-        rule.senderExact?.let {
-            results += PhoneNumbers.equal(it, facts.sender)
+        val senders = effectiveSenders(rule)
+        if (senders.isNotEmpty()) {
+            results += senders.any { PhoneNumbers.equal(it, facts.sender) }
         }
         rule.senderPattern?.let {
             results += PhoneNumbers.matchesPattern(it, facts.sender)
         }
-        rule.senderContains?.let { needle ->
-            results += facts.sender.contains(needle, ignoreCase = true) ||
-                facts.senderName.contains(needle, ignoreCase = true)
+        val senderContainsList = effectiveSenderContains(rule)
+        if (senderContainsList.isNotEmpty()) {
+            results += senderContainsList.any { needle ->
+                facts.sender.contains(needle, ignoreCase = true) ||
+                    facts.senderName.contains(needle, ignoreCase = true)
+            }
         }
         rule.senderInContacts?.let {
             results += (it == facts.senderInContacts)
@@ -90,8 +94,40 @@ object RuleEngine {
         rule.manuallyFiled?.let {
             results += (it == facts.manuallyFiled)
         }
+        rule.hasImage?.let {
+            results += (it == facts.hasImage)
+        }
         if (results.isEmpty()) return true
         return if (rule.conditionMode == CONDITION_MODE_ANY) results.any { it } else results.all { it }
+    }
+
+    /** The exact senders a rule matches on: the multi-sender list when set, else the legacy single number. */
+    fun effectiveSenders(rule: FilterRule): List<String> {
+        val parsed = parseStringList(rule.sendersJson)
+        if (parsed.isNotEmpty()) return parsed
+        return listOfNotNull(rule.senderExact?.takeIf { it.isNotEmpty() })
+    }
+
+    /** The sender substrings a rule matches on: the multi-substring list when set, else the legacy single value. */
+    fun effectiveSenderContains(rule: FilterRule): List<String> {
+        val parsed = parseStringList(rule.senderContainsJson)
+        if (parsed.isNotEmpty()) return parsed
+        return listOfNotNull(rule.senderContains?.takeIf { it.isNotEmpty() })
+    }
+
+    /** Encode a string list for storage (the inverse of [parseStringList]). */
+    fun stringListToJson(values: List<String>): String {
+        return json.encodeToString(values)
+    }
+
+    /** Decode a JSON string list, tolerating a missing or malformed value. */
+    fun parseStringList(raw: String?): List<String> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return try {
+            json.decodeFromString<List<String>>(raw).filter { it.isNotEmpty() }
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 
     /** The keywords a rule matches on: the multi-keyword list when set, else the legacy single keyword. */
@@ -137,4 +173,16 @@ object RuleEngine {
 
     /** Longest body a regex keyword is run against (characters). */
     const val REGEX_INPUT_CAP = 10_000
+}
+
+/**
+ * Whether a part's content type counts as an image for the "has an
+ * image" rule condition: any type starting with `image/` (GIF included).
+ * Video (`video/*`) is a different kind and does not count; the SMIL
+ * wrapper (`application/smil`) and text parts do not count either.
+ * The one definition, shared by the MMS receiver, the retro pass, and
+ * the seeker — never a second copy of the test.
+ */
+fun isImageContentType(contentType: String): Boolean {
+    return contentType.startsWith("image/")
 }

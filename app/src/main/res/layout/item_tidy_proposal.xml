@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One proposed merge on the Tidy rules screen: tick it, see what differs and what it merges to, apply it. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="?attr/selectableItemBackground"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="@dimen/activity_margin"
+    android:paddingTop="12dp"
+    android:paddingEnd="@dimen/activity_margin"
+    android:paddingBottom="12dp">
+
+    <CheckBox
+        android:id="@+id/proposal_checkbox"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:clickable="false"
+        android:focusable="false" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <org.fossify.commons.views.MyTextView
+            android:id="@+id/proposal_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="@dimen/bigger_text_size"
+            android:textStyle="bold" />
+
+        <org.fossify.commons.views.MyTextView
+            android:id="@+id/proposal_difference"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:alpha="0.65"
+            android:textSize="@dimen/normal_text_size" />
+
+        <org.fossify.commons.views.MyTextView
+            android:id="@+id/proposal_merged"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:alpha="0.65"
+            android:textSize="@dimen/normal_text_size" />
+
+        <org.fossify.commons.views.MyTextView
+            android:id="@+id/proposal_evidence"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:alpha="0.65"
+            android:textSize="@dimen/normal_text_size"
+            android:textStyle="italic" />
+
+        <org.fossify.commons.views.MyTextView
+            android:id="@+id/proposal_warning"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="@dimen/normal_text_size"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+    </LinearLayout>
+
+</LinearLayout>

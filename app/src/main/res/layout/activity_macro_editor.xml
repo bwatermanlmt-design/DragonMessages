@@ -271,6 +271,56 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/medium_margin"
                 android:alpha="0.65"
+                android:text="@string/macro_has_image"
+                android:textSize="@dimen/normal_text_size" />
+
+            <RadioGroup
+                android:id="@+id/macro_image_group"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <org.fossify.commons.views.MyCompatRadioButton
+                    android:id="@+id/macro_image_either"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/macro_either" />
+
+                <org.fossify.commons.views.MyCompatRadioButton
+                    android:id="@+id/macro_image_yes"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/macro_has_image_yes" />
+
+                <org.fossify.commons.views.MyCompatRadioButton
+                    android:id="@+id/macro_image_no"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/macro_has_image_no" />
+
+            </RadioGroup>
+
+            <org.fossify.commons.views.MyTextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:alpha="0.65"
+                android:text="@string/macro_has_image_hint"
+                android:textSize="@dimen/normal_text_size" />
+
+            <org.fossify.commons.views.MyTextView
+                android:id="@+id/macro_senders_merged_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/medium_margin"
+                android:alpha="0.65"
+                android:textSize="@dimen/normal_text_size"
+                android:visibility="gone" />
+
+            <org.fossify.commons.views.MyTextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/medium_margin"
+                android:alpha="0.65"
                 android:text="@string/rule_match_mode"
                 android:textSize="@dimen/normal_text_size" />
 

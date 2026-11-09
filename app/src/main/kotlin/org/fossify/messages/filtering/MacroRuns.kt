@@ -18,6 +18,13 @@ data class MacroCandidate(
     val manuallyFiled: Boolean,
     val senderBlocked: Boolean,
     val isGroupConversation: Boolean = false,
+    /**
+     * The thread's most recent inbound message carries an image part
+     * (revision 12): judged the same way as the retro pass, on the
+     * latest message. The "has an image" condition reads it; SMS latest
+     * means false.
+     */
+    val hasImage: Boolean = false,
 )
 
 /**
@@ -50,7 +57,8 @@ object MacroRuns {
             sender = candidate.sender,
             body = candidate.body,
             senderInContacts = candidate.senderInContacts,
-            senderName = candidate.senderName
+            senderName = candidate.senderName,
+            hasImage = candidate.hasImage
         )
         return RuleEngine.matches(macro, facts)
     }

@@ -265,6 +265,39 @@
     <string name="seeker_evidence">%1$d spam - 0 ham</string>
     <string name="seeker_example">%1$s: %2$s</string>
     <string name="seeker_refine_button">Refine this rule</string>
+    <!-- Revision 12 rule adjuster: Tidy rules -->
+    <string name="tidy_rules">Tidy rules</string>
+    <string name="tidy_rules_subtitle">Rules that do the same job, next to each other in the list. Only the ones you tick are merged.</string>
+    <string name="tidy_loading">Looking for rules that do the same job...</string>
+    <string name="tidy_empty">No merges found - your rules are already tidy.</string>
+    <string name="tidy_apply_none">Tick a proposal to merge it</string>
+    <plurals name="tidy_apply">
+        <item quantity="one">Apply 1 merge</item>
+        <item quantity="other">Apply %d merges</item>
+    </plurals>
+    <plurals name="tidy_applied">
+        <item quantity="one">1 merge applied</item>
+        <item quantity="other">%d merges applied</item>
+    </plurals>
+    <string name="tidy_applied_skipped">%1$d applied, %2$d skipped - a rule changed</string>
+    <string name="tidy_pick_one">Tick at least one proposal first.</string>
+    <string name="tidy_group_keyword">Keyword merges</string>
+    <string name="tidy_group_sender">Sender merges</string>
+    <string name="tidy_group_boolean">Condition merges</string>
+    <string name="tidy_group_subsumption">Rules that can never fire</string>
+    <string name="tidy_title">%1$s + %2$s → %3$s</string>
+    <string name="tidy_merged_rule">Merges to “%1$s”: %2$s</string>
+    <string name="tidy_never_fired">never fired</string>
+    <string name="tidy_fired_once">fired once</string>
+    <string name="tidy_fired_times">fired %1$d times</string>
+    <string name="tidy_evidence">%1$s: %2$s · %3$s: %4$s</string>
+    <string name="tidy_shared_name_note">Counts are by rule name, and another rule shares a name, so they are approximate.</string>
+    <string name="tidy_catch_all_warning">This merge would match every message.</string>
+    <string name="macro_has_image">Message has an image</string>
+    <string name="macro_has_image_hint">Text messages never have images.</string>
+    <string name="macro_has_image_yes">Has an image</string>
+    <string name="macro_has_image_no">Does not have an image</string>
+    <string name="macro_senders_merged">Senders (merged - view only): %1$s</string>
     <!-- Recycle bin -->
     <string name="restore">Restore</string>
     <string name="restore_all_messages">Restore all messages</string>

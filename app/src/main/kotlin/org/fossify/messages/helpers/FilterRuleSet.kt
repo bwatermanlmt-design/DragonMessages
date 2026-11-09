@@ -52,6 +52,11 @@ data class FilterRuleDto(
     val senderClass: String? = null,
     val repliedTo: Boolean? = null,
     val manuallyFiled: Boolean? = null,
+    // Revision 12 (rule adjuster): all optional, defaulted — old files
+    // still parse, and the version stays 1.
+    val hasImage: Boolean? = null,
+    val senders: List<String> = emptyList(),
+    val senderContains: List<String> = emptyList(),
     val mailbox: String,
     val assignTag: String? = null,
     val isMacro: Boolean = false,
@@ -95,6 +100,9 @@ fun FilterRule.toDto(): FilterRuleDto {
         senderClass = senderClass,
         repliedTo = repliedTo,
         manuallyFiled = manuallyFiled,
+        hasImage = hasImage,
+        senders = RuleEngine.effectiveSenders(this),
+        senderContains = RuleEngine.effectiveSenderContains(this),
         mailbox = mailbox,
         assignTag = assignTag,
         isMacro = isMacro,
@@ -103,13 +111,29 @@ fun FilterRule.toDto(): FilterRuleDto {
 }
 
 fun FilterRuleDto.toEntity(): FilterRule {
+    // A merged sender rule opened on an old build must not silently
+    // broaden: senderExact stays in sync with the first entry of the
+    // sender list, the same trick keywordsJson already uses with
+    // keyword. The same applies to senderContains.
+    val sendersList = senders.filter { it.isNotEmpty() }
+    val senderContainsList = senderContains.filter { it.isNotEmpty() }
     return FilterRule(
         name = name,
         enabled = enabled,
         priority = priority,
-        senderExact = senderExact,
+        senderExact = sendersList.firstOrNull() ?: senderExact,
+        sendersJson = if (sendersList.isNotEmpty()) {
+            RuleEngine.stringListToJson(sendersList)
+        } else {
+            null
+        },
         senderPattern = senderPattern,
-        senderContains = senderContains,
+        senderContains = senderContainsList.firstOrNull() ?: senderContains,
+        senderContainsJson = if (senderContainsList.isNotEmpty()) {
+            RuleEngine.stringListToJson(senderContainsList)
+        } else {
+            null
+        },
         senderInContacts = senderInContacts,
         senderTag = senderTag,
         keyword = keywords.firstOrNull() ?: keyword,
@@ -124,6 +148,7 @@ fun FilterRuleDto.toEntity(): FilterRule {
         senderClass = senderClass,
         repliedTo = repliedTo,
         manuallyFiled = manuallyFiled,
+        hasImage = hasImage,
         mailbox = mailbox,
         assignTag = assignTag,
         isMacro = isMacro,

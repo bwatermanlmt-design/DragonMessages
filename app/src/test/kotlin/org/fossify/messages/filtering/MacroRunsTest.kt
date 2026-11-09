@@ -190,5 +190,21 @@ class MacroRunsTest {
         assertEquals(listOf(1L, 6L), selected)
     }
 
+    @Test
+    fun `hasImage condition is judged on the candidate fact`() {
+        val m = FilterRule(
+            name = "Images", priority = 15, hasImage = true,
+            mailbox = familyFolder, isMacro = true
+        )
+        val withImage = MacroCandidate(
+            threadId = 1, sender = "+14805550137", senderName = "", body = "photo",
+            senderInContacts = false, currentMailbox = Mailbox.QUARANTINE,
+            manuallyFiled = false, senderBlocked = false, hasImage = true
+        )
+        val withoutImage = withImage.copy(threadId = 2, hasImage = false)
+        assertTrue(MacroRuns.matches(m, withImage))
+        assertFalse(MacroRuns.matches(m, withoutImage))
+    }
+
     // endregion
 }
