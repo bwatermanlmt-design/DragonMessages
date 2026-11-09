@@ -80,8 +80,8 @@ object LockerGate {
     private var authGeneration = 0
 
     /** A gate pass just succeeded: the Locker is open from now. */
-    fun markUnlocked() {
-        lastUnlockedAtMillis = System.currentTimeMillis()
+    fun markUnlocked(nowMillis: Long = System.currentTimeMillis()) {
+        lastUnlockedAtMillis = nowMillis
         lastLeftMessagesAtMillis = 0L
     }
 
@@ -93,10 +93,20 @@ object LockerGate {
         authGeneration = 0
     }
 
-    /** The user left the messages UI (an activity paused). */
-    fun markLeftMessages() {
-        if (lastUnlockedAtMillis != 0L) {
-            lastLeftMessagesAtMillis = System.currentTimeMillis()
+    /**
+     * The user left the messages UI (an activity paused). The away
+     * clock starts on the FIRST departure and is NOT restarted by
+     * later pauses: when the Locker activity finishes because the
+     * user cancelled the gate, re-stamping here would measure the
+     * timeout from the dismiss and grant a fresh window of free
+     * access — the second hole found in 1.10.15 verification, where
+     * a Back-dismissed gate let the Locker open unauthenticated for
+     * another 15 seconds. Only coming back (markBackInMessages)
+     * clears the stamp, so the next departure starts a new clock.
+     */
+    fun markLeftMessages(nowMillis: Long = System.currentTimeMillis()) {
+        if (lastUnlockedAtMillis != 0L && lastLeftMessagesAtMillis == 0L) {
+            lastLeftMessagesAtMillis = nowMillis
         }
     }
 

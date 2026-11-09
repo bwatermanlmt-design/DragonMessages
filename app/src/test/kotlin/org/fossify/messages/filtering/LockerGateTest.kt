@@ -122,4 +122,34 @@ class LockerGateTest {
         val now = System.currentTimeMillis()
         assertTrue(!LockerGate.needsAuth(now + 60_000, timeoutSeconds = 30))
     }
+
+    @Test
+    fun secondDepartureDoesNotRestartTheAwayClock() {
+        // The gate-cancel hole: leaving, then leaving again (the
+        // Locker activity finishing after a cancelled gate) must
+        // NOT grant a fresh timeout window — the clock measures
+        // from the first departure.
+        LockerGate.resetSession()
+        LockerGate.markUnlocked(nowMillis = 1_000_000)
+        LockerGate.markLeftMessages(nowMillis = 1_001_000)
+        LockerGate.markLeftMessages(nowMillis = 1_021_000)
+        // 10s after the first departure: still inside the timeout.
+        assertTrue(!LockerGate.needsAuth(1_011_000, timeoutSeconds = 30))
+        // 31s after the first departure, only 11s after the second:
+        // the gate is due, because the clock never restarted.
+        assertTrue(LockerGate.needsAuth(1_032_000, timeoutSeconds = 30))
+    }
+
+    @Test
+    fun newDepartureAfterReturnStartsANewClock() {
+        LockerGate.resetSession()
+        LockerGate.markUnlocked(nowMillis = 1_000_000)
+        LockerGate.markLeftMessages(nowMillis = 1_001_000)
+        LockerGate.markBackInMessages()
+        LockerGate.markLeftMessages(nowMillis = 1_021_000)
+        // 10s after the second (real) departure: inside the timeout.
+        assertTrue(!LockerGate.needsAuth(1_031_000, timeoutSeconds = 30))
+        // 31s after the second departure: the gate is due.
+        assertTrue(LockerGate.needsAuth(1_052_000, timeoutSeconds = 30))
+    }
 }
