@@ -50,7 +50,22 @@ data class MmsPart(
         )
     }
 
+    fun isVCard(): Boolean {
+        // Same match as String.isVCardMimeType: text/vcard and
+        // text/x-vcard (and any future *-vcard subtype).
+        val type = contentType.lowercase()
+        return type.endsWith("x-vcard") || type.endsWith("vcard")
+    }
+
     fun isNonText(): Boolean {
+        // A vCard's payload is stream bytes, not the TEXT column —
+        // it is a media part for display, restore, and export, even
+        // though its content type starts with "text/". Before this,
+        // a vCard rendered as raw text in the locked view and its
+        // bytes were silently dropped on unlock (1.10.11-1.10.15).
+        if (isVCard()) {
+            return true
+        }
         return !(text != null || contentType.lowercase().startsWith("text") || contentType.lowercase() == "application/smil")
     }
 }

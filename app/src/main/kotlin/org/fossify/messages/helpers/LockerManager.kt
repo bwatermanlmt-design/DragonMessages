@@ -524,11 +524,13 @@ class LockerManager(private val context: Context) {
          * ([MmsPart.data]) is empty for text parts — reading `data`
          * is why locked MMS showed the attachment label but no text
          * (1.10.16). `data` stays as the fallback for parts whose
-         * text came through the stream instead. Pure — unit-tests
-         * run it on the JVM.
+         * text came through the stream instead. A part is a text
+         * part when it is not a media part (see [MmsPart.isNonText],
+         * which counts vCards as media) and not the SMIL
+         * presentation. Pure — unit-tests run it on the JVM.
          */
         fun mmsDisplayText(parts: List<MmsPart>): String {
-            return parts.filter { it.contentType.startsWith("text/") }
+            return parts.filter { !it.isNonText() && it.contentType.lowercase() != "application/smil" }
                 .joinToString("\n") { it.text ?: it.data ?: "" }
         }
 
@@ -653,13 +655,19 @@ class LockerManager(private val context: Context) {
      * getLockedMessages is reached solely from the gated thread view.
      */
     private fun materializeMediaPart(part: MmsPart, messageId: Long, index: Int): Attachment? {
-        val base64 = part.data ?: return null
-        val bytes = try {
-            Base64.decode(base64, Base64.DEFAULT)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            return null
-        }
+        // Media payloads arrive Base64-encoded — except vCards, whose
+        // content type starts with "text/", so MessagesReader stored
+        // them as a UTF-8 string in data, not Base64.
+        val bytes = if (part.isVCard()) {
+            part.data?.toByteArray(Charsets.UTF_8)
+        } else {
+            try {
+                part.data?.let { Base64.decode(it, Base64.DEFAULT) }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                return null
+            }
+        } ?: return null
         if (bytes.isEmpty()) {
             return null
         }

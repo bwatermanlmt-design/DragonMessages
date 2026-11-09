@@ -79,6 +79,27 @@ class LockerDisplayTest {
     }
 
     @Test
+    fun vCardIsAMediaPartNotText() {
+        // A vCard's payload is stream bytes, not the TEXT column —
+        // it must render as a vCard card, never as body text, and its
+        // bytes must survive an unlock (writeMmsPart keys on this).
+        val vcard = part("text/vcard", text = null, data = "BEGIN:VCARD\nEND:VCARD")
+        assertTrue(vcard.isVCard())
+        assertTrue(vcard.isNonText())
+        assertTrue(part("text/x-vcard", text = null, data = "BEGIN:VCARD").isNonText())
+        assertTrue(!part("text/plain", text = "hi", data = "").isNonText())
+    }
+
+    @Test
+    fun mmsTextExcludesVCardParts() {
+        val parts = listOf(
+            part("text/plain", text = "hello", data = ""),
+            part("text/vcard", text = null, data = "BEGIN:VCARD\nFN:Test\nEND:VCARD")
+        )
+        assertEquals("hello", LockerManager.mmsDisplayText(parts))
+    }
+
+    @Test
     fun mediaExtensionComesFromContentTypeOnly() {
         assertEquals(".jpg", LockedMediaCache.extensionFor("image/jpeg"))
         assertEquals(".png", LockedMediaCache.extensionFor("image/png"))
