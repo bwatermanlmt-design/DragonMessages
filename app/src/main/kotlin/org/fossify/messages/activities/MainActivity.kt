@@ -75,6 +75,7 @@ import org.fossify.messages.extensions.lockedThreadsDB
 import org.fossify.messages.extensions.messagesDB
 import org.fossify.messages.helpers.FolderManager
 import org.fossify.messages.helpers.LockerGate
+import org.fossify.messages.helpers.LockerManager
 import org.fossify.messages.helpers.MAILBOX_FILTER
 import org.fossify.messages.helpers.SEARCHED_MESSAGE_ID
 import org.fossify.messages.helpers.THREAD_ID
@@ -143,6 +144,13 @@ class MainActivity : SimpleActivity() {
 
     override fun onResume() {
         super.onResume()
+        // The Locker re-locked while the user was away: any decrypted
+        // media files from a locked thread view must go now, not when
+        // the thread is next opened — the thread activity may still
+        // sit in the back stack with its files on disk.
+        if (LockerGate.needsAuth(timeoutSeconds = config.lockerAutoLockSeconds)) {
+            LockerManager(this).clearDecryptedMedia()
+        }
         // The Locker re-locks after the user has been away from
         // messages for the auto-lock timeout: check before clearing
         // the away marker, or a return after a long absence would

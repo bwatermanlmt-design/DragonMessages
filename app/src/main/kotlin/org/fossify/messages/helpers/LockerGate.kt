@@ -85,6 +85,16 @@ object LockerGate {
         lastLeftMessagesAtMillis = 0L
     }
 
+    /**
+     * The current gate session's id, for the decrypted-media files
+     * (LockedMediaCache): one directory per gate pass, so a re-lock
+     * strands the old session's URIs. 0 until the first gate pass
+     * in this process — media must never be written before then.
+     */
+    fun sessionId(): Long {
+        return lastUnlockedAtMillis
+    }
+
     /** Tests only: forget the session, as if the process just started. */
     fun resetSession() {
         lastUnlockedAtMillis = 0L

@@ -323,12 +323,24 @@ class ThreadActivity : SimpleActivity() {
         // gate answers, so a return after a long absence never flashes
         // locked messages before prompting.
         if (isLockedThread) {
+            // The Locker re-locked while the user was away: the
+            // decrypted media files from the last open session must
+            // go before the gate answers, or they sit on disk past
+            // the re-lock. A re-auth reloads the messages, which
+            // re-materializes them for the new session.
+            val relocked = LockerGate.needsAuth(timeoutSeconds = config.lockerAutoLockSeconds)
+            if (relocked) {
+                LockerManager(this).clearDecryptedMedia()
+            }
             LockerGate.authenticateIfNeeded(
                 this,
                 config.lockerAutoLockSeconds,
                 onUnlocked = {
                     LockerGate.markBackInMessages()
                     showThreadContent()
+                    if (relocked) {
+                        reloadLockedMessages()
+                    }
                 },
                 onCancelled = { finish() }
             )
@@ -400,6 +412,14 @@ class ThreadActivity : SimpleActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        if (isLockedThread) {
+            // Decrypted media files must not outlive the thread view.
+            try {
+                LockerManager(this).clearDecryptedMedia()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
         bus?.unregister(this)
     }
 
@@ -545,6 +565,18 @@ class ThreadActivity : SimpleActivity() {
 
     private fun setupCachedMessages(callback: () -> Unit) {
         ensureBackgroundThread {
+            if (isLockedThread) {
+                // A locked thread's messages live only encrypted:
+                // drop any Room copies an earlier build cached when
+                // viewing re-cached them, so the cached load below
+                // never serves decrypted locked content — or a stale
+                // attachment URI from a wiped media session.
+                try {
+                    messagesDB.deleteThreadMessages(threadId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
             messages = try {
                 if (isRecycleBin) {
                     messagesDB.getThreadMessagesFromRecycleBin(threadId)
@@ -668,7 +700,12 @@ class ThreadActivity : SimpleActivity() {
                 }
             }
 
-            if (!isRecycleBin) {
+            // A locked thread's messages live only encrypted: caching
+            // the decrypted store in Room would undo the isolation —
+            // and now would also persist the session media URIs.
+            // MainActivity's refresh already deletes Room copies for
+            // locked threads for the same reason.
+            if (!isRecycleBin && !isLockedThread) {
                 messages.chunked(30).forEach { currentMessages ->
                     messagesDB.insertMessages(*currentMessages.toTypedArray())
                 }
@@ -2079,10 +2116,15 @@ class ThreadActivity : SimpleActivity() {
             }
         }.toSortedMessages()
 
-        messages.filter { !it.isScheduled && !it.isReceivedMessage() && it.id > lastMaxId }
-            .forEach { latestMessage ->
-                messagesDB.insertOrIgnore(latestMessage)
-            }
+        // Never cache a locked thread's messages in Room: the
+        // decrypted store is the only copy, and the session media
+        // URIs in it must not be persisted either.
+        if (!isLockedThread) {
+            messages.filter { !it.isScheduled && !it.isReceivedMessage() && it.id > lastMaxId }
+                .forEach { latestMessage ->
+                    messagesDB.insertOrIgnore(latestMessage)
+                }
+        }
 
         setupAdapter()
         runOnUiThread {
@@ -2090,6 +2132,31 @@ class ThreadActivity : SimpleActivity() {
                 setupThreadTitle()
             }
             setupSIMSelector()
+        }
+    }
+
+    /**
+     * Reload a locked thread's messages after the gate passes again:
+     * the re-lock wipe deleted the decrypted media files, so the
+     * adapter's old URIs are stale — re-decrypt and re-materialize
+     * them for the new gate session. Only the messages list is
+     * rebuilt; participants and the rest of the thread setup are
+     * untouched.
+     */
+    private fun reloadLockedMessages() {
+        ensureBackgroundThread {
+            val fresh = getMessages(threadId)
+            messages = if (config.useRecycleBin) {
+                val recycledMessages = messagesDB.getThreadMessagesFromRecycleBin(threadId)
+                fresh.filterNotInByKey(recycledMessages) { it.getStableId() }
+            } else {
+                fresh
+            }.toSortedMessages()
+            val latestThreadItems = getThreadItems()
+            runOnUiThread {
+                threadItems = latestThreadItems
+                getOrCreateThreadAdapter().updateMessages(latestThreadItems)
+            }
         }
     }
 

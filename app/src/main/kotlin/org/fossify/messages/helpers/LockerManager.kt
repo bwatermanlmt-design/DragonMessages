@@ -28,7 +28,10 @@ import org.fossify.messages.models.LockedThread
 import org.fossify.messages.models.Mailbox
 import org.fossify.messages.models.Message
 import org.fossify.messages.models.MessagesBackup
+import org.fossify.messages.models.Attachment
+import org.fossify.messages.models.MessageAttachment
 import org.fossify.messages.models.MmsBackup
+import org.fossify.messages.models.MmsPart
 import org.fossify.messages.models.SmsBackup
 import javax.crypto.SecretKey
 
@@ -172,8 +175,7 @@ class LockerManager(private val context: Context) {
                 }
                 lastSnippet = when (backup) {
                     is SmsBackup -> backup.body ?: ""
-                    is MmsBackup -> backup.parts.filter { it.contentType.startsWith("text/") }
-                        .joinToString("\n") { it.data ?: "" }
+                    is MmsBackup -> mmsDisplayText(backup.parts)
                 }
                 // SMS dates are millis, MMS dates are seconds.
                 lastDateSeconds = when (backup) {
@@ -234,6 +236,11 @@ class LockerManager(private val context: Context) {
             context.lockedMessageChunksDB.deleteByThread(threadId)
             context.lockedMessagesDB.deleteByThread(threadId)
             context.lockedThreadsDB.delete(threadId)
+            // The thread's decrypted media files are no longer
+            // needed — the provider has the originals again — and
+            // must not linger past the unlock. A failure here must
+            // not fail the unlock itself.
+            runCatching { clearDecryptedMedia() }
             writer.fixConversationDates()
             true
         } catch (e: Exception) {
@@ -417,6 +424,9 @@ class LockerManager(private val context: Context) {
 
     /** A locked thread's messages, decrypted, for the thread view. */
     fun getLockedMessages(threadId: Long): List<Message> {
+        // A dead process leaves decrypted media files behind; the
+        // next locked view load sweeps every session but this one.
+        LockedMediaCache.clearStaleSessions(context)
         return try {
             val key = LockerKey.getOrCreateKey()
             context.lockedMessagesDB.getByThread(threadId).mapNotNull { row ->
@@ -431,6 +441,11 @@ class LockerManager(private val context: Context) {
             e.printStackTrace()
             emptyList()
         }
+    }
+
+    /** Delete every decrypted locked-media file, whatever session it was from. */
+    fun clearDecryptedMedia() {
+        LockedMediaCache.clearAll(context)
     }
 
     /** Every locked message as its backup object — the export path. */
@@ -503,6 +518,20 @@ class LockerManager(private val context: Context) {
          */
         const val CIPHER_CHUNK_SIZE = 262144
 
+        /**
+         * A locked MMS's display text, from its text parts. MMS text
+         * lives in the TEXT column ([MmsPart.text]); the part stream
+         * ([MmsPart.data]) is empty for text parts — reading `data`
+         * is why locked MMS showed the attachment label but no text
+         * (1.10.16). `data` stays as the fallback for parts whose
+         * text came through the stream instead. Pure — unit-tests
+         * run it on the JVM.
+         */
+        fun mmsDisplayText(parts: List<MmsPart>): String {
+            return parts.filter { it.contentType.startsWith("text/") }
+                .joinToString("\n") { it.text ?: it.data ?: "" }
+        }
+
         /** Split a Base64 ciphertext into [CIPHER_CHUNK_SIZE] pieces. */
         fun chunkCiphertext(id: Long, isMMS: Boolean, ciphertext: String): List<LockedMessageChunk> {
             if (ciphertext.isEmpty()) {
@@ -521,9 +550,12 @@ class LockerManager(private val context: Context) {
 
     /**
      * Build the display Message for a decrypted backup, mirroring what
-     * getMessages/getMMS build from the provider. MMS attachments stay
-     * encrypted: the bubble shows the text plus a line naming each
-     * locked attachment (unlock the thread to view it).
+     * getMessages/getMMS build from the provider. MMS text comes from
+     * the TEXT column (see [mmsDisplayText]); media parts render
+     * inline (1.10.16) — the decrypted bytes are written to the
+     * session media cache and handed to the adapter as a real
+     * [MessageAttachment], exactly like a normal MMS. A part that
+     * cannot be materialized keeps the naming label as fallback.
      */
     private fun toDisplayMessage(backup: MessagesBackup, row: LockedMessage): Message {
         return when (backup) {
@@ -562,13 +594,22 @@ class LockerManager(private val context: Context) {
                 } else {
                     null
                 }
-                val textParts = backup.parts.filter { it.contentType.startsWith("text/") }
+                val text = mmsDisplayText(backup.parts)
                 val mediaParts = backup.parts.filter { it.isNonText() }
+                val attachments = ArrayList<Attachment>()
                 val body = buildString {
-                    append(textParts.joinToString("\n") { it.data ?: "" })
-                    mediaParts.forEach { part ->
-                        val label = part.filename ?: part.name ?: part.contentType
-                        append("\n[Locked attachment: $label (${part.contentType})]")
+                    append(text)
+                    mediaParts.forEachIndexed { index, part ->
+                        // Inline (1.10.16): a part that materializes
+                        // renders like a normal attachment; one that
+                        // cannot keeps the naming label as fallback.
+                        val attachment = materializeMediaPart(part, row.id, index)
+                        if (attachment != null) {
+                            attachments.add(attachment)
+                        } else {
+                            val label = part.filename ?: part.name ?: part.contentType
+                            append("\n[Locked attachment: $label (${part.contentType})]")
+                        }
                     }
                 }
                 Message(
@@ -594,7 +635,7 @@ class LockerManager(private val context: Context) {
                     read = backup.read == 1,
                     threadId = row.threadId,
                     isMMS = true,
-                    attachment = null,
+                    attachment = MessageAttachment(row.id, text, attachments),
                     senderPhoneNumber = senderAddress,
                     senderName = namePhoto?.name ?: "",
                     senderPhotoUri = namePhoto?.photoUri ?: "",
@@ -602,6 +643,38 @@ class LockerManager(private val context: Context) {
                 )
             }
         }
+    }
+
+    /**
+     * Decrypt a locked media part into the session media cache and
+     * build the Attachment the thread adapter renders inline. Null
+     * when the part has no bytes or the write fails — the caller
+     * falls back to the naming label. Runs only behind the gate:
+     * getLockedMessages is reached solely from the gated thread view.
+     */
+    private fun materializeMediaPart(part: MmsPart, messageId: Long, index: Int): Attachment? {
+        val base64 = part.data ?: return null
+        val bytes = try {
+            Base64.decode(base64, Base64.DEFAULT)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return null
+        }
+        if (bytes.isEmpty()) {
+            return null
+        }
+        val uri = LockedMediaCache.writePart(context, messageId, index, bytes, part.contentType)
+            ?: return null
+        return Attachment(
+            id = index.toLong(),
+            messageId = messageId,
+            uriString = uri.toString(),
+            mimetype = part.contentType,
+            width = 0,
+            height = 0,
+            filename = part.filename ?: part.name ?: "",
+            isLockedMedia = true
+        )
     }
 
     private fun participantsFromAddress(address: String): ArrayList<SimpleContact> {

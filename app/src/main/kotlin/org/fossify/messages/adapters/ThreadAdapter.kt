@@ -503,18 +503,27 @@ class ThreadAdapter(
         threadMessageAttachmentsHolder.addView(imageView.root)
 
         val placeholderDrawable = Color.TRANSPARENT.toDrawable()
+        // Locked media must never reach Glide's disk cache: a decoded
+        // copy would sit on disk past the re-lock. NONE — and no
+        // memory cache either — so the bytes live only in the session
+        // media cache, wiped on re-lock.
         val options = RequestOptions()
-            .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
+            .diskCacheStrategy(
+                if (attachment.isLockedMedia) DiskCacheStrategy.NONE else DiskCacheStrategy.RESOURCE
+            )
             .placeholder(placeholderDrawable)
             .transform(FitCenter())
 
-        Glide.with(root.context)
+        val request = Glide.with(root.context)
             .load(uri)
             .apply(options)
             .dontAnimate()
             .override(maxChatBubbleWidth, maxChatBubbleWidth * MAX_MEDIA_HEIGHT_RATIO)
             .downsample(DownsampleStrategy.AT_MOST)
-            .listener(object : RequestListener<Drawable> {
+        if (attachment.isLockedMedia) {
+            request.skipMemoryCache(true)
+        }
+        request.listener(object : RequestListener<Drawable> {
                 override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean): Boolean {
                     threadMessagePlayOutline.beGone()
                     threadMessageAttachmentsHolder.removeView(imageView.root)
