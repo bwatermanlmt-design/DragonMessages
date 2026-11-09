@@ -276,9 +276,13 @@ class RuleAdjusterTest {
 
     @Test
     fun `non-adjacent pairs are never proposed`() {
+        // The outer two are identical, but the middle rule stands between
+        // them — and it blocks both adjacent pairs too, differing from
+        // each neighbour in two slots (keyword AND contains-link), so no
+        // pair in the list merges at all.
         val a = rule(id = 1, priority = 10, keyword = "prize")
-        val between = rule(id = 2, priority = 11, keyword = "other")
-        val b = rule(id = 3, priority = 12, keyword = "claim")
+        val between = rule(id = 2, priority = 11, keyword = "other", containsLink = true)
+        val b = rule(id = 3, priority = 12, keyword = "prize")
         assertTrue(RuleAdjuster.findMerges(listOf(a, between, b)).isEmpty())
     }
 
