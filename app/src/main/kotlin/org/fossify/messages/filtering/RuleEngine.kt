@@ -178,10 +178,10 @@ object RuleEngine {
 /**
  * Whether a part's content type counts as an image for the "has an
  * image" rule condition: any type starting with `image/` (GIF included).
- * Video (`video/*`) is a different kind and does not count; the SMIL
- * wrapper (`application/smil`) and text parts do not count either.
- * The one definition, shared by the MMS receiver, the retro pass, and
- * the seeker — never a second copy of the test.
+ * Video parts are a different kind and do not count; the SMIL wrapper
+ * (`application/smil`) and text parts do not count either. The one
+ * definition, shared by the MMS receiver, the retro pass, and the
+ * seeker — never a second copy of the test.
  */
 fun isImageContentType(contentType: String): Boolean {
     return contentType.startsWith("image/")

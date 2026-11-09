@@ -690,7 +690,7 @@ class RuleEngineTest {
         val rule = parsed!!.rules.single()
         assertNull(rule.hasImage)
         assertTrue(rule.senders.isEmpty())
-        assertTrue(rule.senderContains.isEmpty())
+        assertTrue(rule.senderContainsList.isEmpty())
         assertNull(rule.toEntity().hasImage)
         assertNull(rule.toEntity().sendersJson)
         assertNull(rule.toEntity().senderContainsJson)

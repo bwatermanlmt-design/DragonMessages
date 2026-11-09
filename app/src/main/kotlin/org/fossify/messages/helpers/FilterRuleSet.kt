@@ -56,7 +56,7 @@ data class FilterRuleDto(
     // still parse, and the version stays 1.
     val hasImage: Boolean? = null,
     val senders: List<String> = emptyList(),
-    val senderContains: List<String> = emptyList(),
+    val senderContainsList: List<String> = emptyList(),
     val mailbox: String,
     val assignTag: String? = null,
     val isMacro: Boolean = false,
@@ -102,7 +102,7 @@ fun FilterRule.toDto(): FilterRuleDto {
         manuallyFiled = manuallyFiled,
         hasImage = hasImage,
         senders = RuleEngine.effectiveSenders(this),
-        senderContains = RuleEngine.effectiveSenderContains(this),
+        senderContainsList = RuleEngine.effectiveSenderContains(this),
         mailbox = mailbox,
         assignTag = assignTag,
         isMacro = isMacro,
@@ -116,7 +116,7 @@ fun FilterRuleDto.toEntity(): FilterRule {
     // sender list, the same trick keywordsJson already uses with
     // keyword. The same applies to senderContains.
     val sendersList = senders.filter { it.isNotEmpty() }
-    val senderContainsList = senderContains.filter { it.isNotEmpty() }
+    val senderContainsListFiltered = senderContainsList.filter { it.isNotEmpty() }
     return FilterRule(
         name = name,
         enabled = enabled,
@@ -128,9 +128,9 @@ fun FilterRuleDto.toEntity(): FilterRule {
             null
         },
         senderPattern = senderPattern,
-        senderContains = senderContainsList.firstOrNull() ?: senderContains,
-        senderContainsJson = if (senderContainsList.isNotEmpty()) {
-            RuleEngine.stringListToJson(senderContainsList)
+        senderContains = senderContainsListFiltered.firstOrNull() ?: senderContains,
+        senderContainsJson = if (senderContainsListFiltered.isNotEmpty()) {
+            RuleEngine.stringListToJson(senderContainsListFiltered)
         } else {
             null
         },

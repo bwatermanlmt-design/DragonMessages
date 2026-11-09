@@ -336,7 +336,7 @@ object FilterEvaluator {
                 judgedSender,
                 judgedBody,
                 hasImage = if (latestMms != null && (latestSms == null || latestMms.dateMillis >= latestSms.dateMillis)) {
-                    mmsHasImagePart(context, latestMms.mmsId)
+                    latestMms.mmsId?.let { mmsHasImagePart(context, it) } ?: false
                 } else {
                     false
                 }
@@ -478,9 +478,10 @@ object FilterEvaluator {
     }
 
     /**
-     * Whether the MMS with this provider id has any part with an image/*
-     * content type (the shared "has an image" test, on provider parts).
-     * A lookup failure answers false: no image by accident.
+     * Whether the MMS with this provider id has any part whose content
+     * type starts with `image/` (the shared "has an image" test, on
+     * provider parts). A lookup failure answers false: no image by
+     * accident.
      */
     fun mmsHasImagePart(context: Context, mmsId: Long): Boolean {
         return try {
@@ -506,7 +507,8 @@ object FilterEvaluator {
         val latestSms = latestInboundSms(context, threadId)
         val latestMms = latestInboundMms(context, threadId) ?: return false
         if (latestSms != null && latestSms.dateMillis > latestMms.dateMillis) return false
-        return mmsHasImagePart(context, latestMms.mmsId)
+        val mmsId = latestMms.mmsId ?: return false
+        return mmsHasImagePart(context, mmsId)
     }
 
     private fun isSenderInContacts(context: Context, sender: String): Boolean {
