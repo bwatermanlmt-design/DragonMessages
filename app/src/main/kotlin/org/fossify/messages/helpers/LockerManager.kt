@@ -38,6 +38,9 @@ import org.fossify.messages.models.MessageAttachment
 import org.fossify.messages.models.MmsBackup
 import org.fossify.messages.models.MmsPart
 import org.fossify.messages.models.SmsBackup
+import java.util.concurrent.Callable
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import javax.crypto.SecretKey
 
 /**
@@ -70,6 +73,19 @@ class LockerManager(private val context: Context) {
         encodeDefaults = true
         ignoreUnknownKeys = true
     }
+
+    /**
+     * One message's worth of lock work: the backup plus the row
+     * fields it becomes. 1.10.19: the encrypts fan out over the
+     * crypto pool (see parallelMap), so the job carries everything
+     * the transform needs and nothing it must share.
+     */
+    private data class EncryptJob(
+        val backup: MessagesBackup,
+        val providerId: Long,
+        val isMMS: Boolean,
+        val dateMillis: Long
+    )
 
     fun isThreadLocked(threadId: Long): Boolean {
         return context.lockedThreadsDB.get(threadId) != null
@@ -108,20 +124,26 @@ class LockerManager(private val context: Context) {
         return try {
             val reader = MessagesReader(context)
             val key = LockerKey.getOrCreateKey()
-            val rows = mutableListOf<LockedMessage>()
-            val allChunks = mutableListOf<LockedMessageChunk>()
-
+            // 1.10.19: the per-message encrypts are independent (own
+            // IV, own Cipher per call), so they fan out over the
+            // crypto pool and come back in input order. The store
+            // writes and the provider delete below still run
+            // sequentially, in that same order, on this thread — and
+            // a failure anywhere aborts before anything is stored,
+            // so the thread is unchanged, exactly as before.
+            val jobs = mutableListOf<EncryptJob>()
             reader.getSmsBackupsForThread(threadId).forEach { (id, backup) ->
-                val (row, chunks) = encryptBackup(backup, id, isMMS = false, threadId, backup.date, key, conversation.phoneNumber)
-                rows.add(row)
-                allChunks.addAll(chunks)
+                jobs.add(EncryptJob(backup, id, isMMS = false, backup.date))
             }
             reader.getMmsBackupsForThread(threadId).forEach { (id, backup) ->
                 // MMS dates are seconds; the store orders on millis.
-                val (row, chunks) = encryptBackup(backup, id, isMMS = true, threadId, backup.date * 1000L, key, conversation.phoneNumber)
-                rows.add(row)
-                allChunks.addAll(chunks)
+                jobs.add(EncryptJob(backup, id, isMMS = true, backup.date * 1000L))
             }
+            val encrypted = parallelMap(jobs) { job ->
+                encryptBackup(job.backup, job.providerId, job.isMMS, threadId, job.dateMillis, key, conversation.phoneNumber)
+            }
+            val rows = encrypted.map { it.first }
+            val allChunks = encrypted.flatMap { it.second }
 
             // A thread with no messages has nothing to lock: refuse
             // rather than recording an empty locked thread, which
@@ -184,11 +206,18 @@ class LockerManager(private val context: Context) {
             val key = LockerKey.getOrCreateKey()
             val rows = context.lockedMessagesDB.getByThread(threadId)
 
+            // 1.10.19: the per-message decrypts are independent, so
+            // they fan out over the crypto pool and come back in row
+            // order. The provider writes below still run one at a
+            // time, in that order, on this thread — and a decrypt
+            // failure now aborts before anything is written, instead
+            // of leaving a partial restore behind.
+            val backups = parallelMap(rows) { row -> decryptBackup(row, key) }
+
             var firstBackup: MessagesBackup? = null
             var lastSnippet = ""
             var lastDateSeconds = 0
-            rows.forEach { row ->
-                val backup = decryptBackup(row, key)
+            rows.zip(backups).forEach { (_, backup) ->
                 if (firstBackup == null) {
                     firstBackup = backup
                 }
@@ -532,7 +561,8 @@ class LockerManager(private val context: Context) {
      * whole message to [onMessageReady] — the thread view swaps it
      * into the adapter as it lands, so the photo pops in behind the
      * text instead of holding the whole thread up. Runs on the
-     * caller's background thread; the callback fires per message, in
+     * caller's background thread; the decrypts fan out over the
+     * crypto pool (1.10.19) and the callback fires per message, in
      * row order. Rows already materialized for this session, and rows
      * with no attachments, are skipped. A row that will not decrypt
      * is skipped silently — the shell already shows its text, and
@@ -546,9 +576,9 @@ class LockerManager(private val context: Context) {
         }
         try {
             val key = LockerKey.getOrCreateKey()
-            context.lockedMessagesDB.getByThread(threadId).forEach { row ->
+            val pending = context.lockedMessagesDB.getByThread(threadId).filter { row ->
                 if (materializedMessage(row) != null) {
-                    return@forEach
+                    return@filter false
                 }
                 val display = try {
                     decryptEnvelope(row, key)
@@ -557,16 +587,27 @@ class LockerManager(private val context: Context) {
                 }
                 // An SMS has no media, and an old-shape row was
                 // already materialized by the fast load itself.
-                if (display == null || display.attachments.isEmpty()) {
-                    return@forEach
-                }
+                display != null && display.attachments.isNotEmpty()
+            }
+            // 1.10.19: the full-record decrypts fan out over the
+            // crypto pool; the messages still land in the adapter
+            // in row order, on this thread. A row that will not
+            // decrypt is skipped silently — the shell already shows
+            // its text, and the placeholder path in
+            // [getLockedMessages] covers the damage.
+            val messages = parallelMap(pending) { row ->
                 try {
                     val record = decryptRecord(row, key, fallbackAddress)
-                    val message = toDisplayMessage(record, row)
-                    putMaterialized(row, message)
-                    onMessageReady(message)
+                    row to toDisplayMessage(record, row)
                 } catch (e: Exception) {
                     e.printStackTrace()
+                    null
+                }
+            }
+            messages.forEach { pair ->
+                if (pair != null) {
+                    putMaterialized(pair.first, pair.second)
+                    onMessageReady(pair.second)
                 }
             }
         } catch (e: Exception) {
@@ -588,13 +629,26 @@ class LockerManager(private val context: Context) {
                 return
             }
             val key = LockerKey.getOrCreateKey()
-            context.lockedMessagesDB.getWithoutEnvelope().forEach { row ->
+            val rows = context.lockedMessagesDB.getWithoutEnvelope()
+            // 1.10.19: the decrypts fan out over the crypto pool;
+            // the envelope writes still run one at a time, in row
+            // order, on this thread. A failure on one row leaves
+            // that row exactly as it was.
+            val upgrades = parallelMap(rows) { row ->
                 try {
                     val record = decryptRecord(row, key)
                     val (envelopeIv, envelopeCiphertext) = encryptEnvelope(record.display, key)
-                    context.lockedMessagesDB.updateEnvelope(row.id, row.isMMS, envelopeIv, envelopeCiphertext)
+                    Triple(row.id, row.isMMS, envelopeIv to envelopeCiphertext)
                 } catch (e: Exception) {
                     e.printStackTrace()
+                    null
+                }
+            }
+            upgrades.forEach { upgrade ->
+                if (upgrade != null) {
+                    runCatching {
+                        context.lockedMessagesDB.updateEnvelope(upgrade.first, upgrade.second, upgrade.third.first, upgrade.third.second)
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -757,6 +811,35 @@ class LockerManager(private val context: Context) {
 
         fun clearMaterialized() {
             materializedMessages.clear()
+        }
+
+        /**
+         * 1.10.19: the per-message crypto is independent — one
+         * AES/GCM ciphertext per message, a fresh Cipher per call —
+         * so lock/unlock fan the messages out over a small pool
+         * instead of doing them one at a time. Results always come
+         * back in input order; the Room and provider writes stay
+         * sequential, on the calling thread. The pool lives for the
+         * process lifetime, like the commons background executor.
+         * Capped at 4: the Keystore may serialize hardware-backed
+         * operations internally, so more workers would not help.
+         */
+        private val cryptoPool: ExecutorService = Executors.newFixedThreadPool(
+            Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
+        )
+
+        /**
+         * Run [transform] over [items] in parallel, results in input
+         * order. Throws the first failure (wrapped in
+         * ExecutionException by the Future) — callers that must not
+         * fail the whole batch catch per item inside [transform].
+         */
+        internal fun <T, R> parallelMap(items: List<T>, transform: (T) -> R): List<R> {
+            if (items.size <= 1) {
+                return items.map(transform)
+            }
+            val futures = items.map { item -> cryptoPool.submit(Callable { transform(item) }) }
+            return futures.map { it.get() }
         }
 
         private val recordJson = Json {
