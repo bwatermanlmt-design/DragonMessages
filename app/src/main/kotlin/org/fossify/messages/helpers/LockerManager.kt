@@ -465,11 +465,16 @@ class LockerManager(private val context: Context) {
             ""
         }
         val placeholderText = context.getString(R.string.locker_undecryptable_message)
+        // TEMP timing (1.10.18 investigation): whole-load and per-row display cost.
+        val loadT0 = android.os.SystemClock.elapsedRealtime()
         return try {
             val key = LockerKey.getOrCreateKey()
             context.lockedMessagesDB.getByThread(threadId).map { row ->
                 try {
-                    toDisplayMessage(decryptRecord(row, key, fallbackAddress), row)
+                    val dT0 = android.os.SystemClock.elapsedRealtime()
+                    val msg = toDisplayMessage(decryptRecord(row, key, fallbackAddress), row)
+                    android.util.Log.d("LOCKER_TIME", "getLockedMessages row=${row.id} display=${android.os.SystemClock.elapsedRealtime() - dT0}")
+                    msg
                 } catch (e: Exception) {
                     // A row that will not decrypt is shown, not
                     // dropped: silently vanishing messages are how
@@ -483,6 +488,8 @@ class LockerManager(private val context: Context) {
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
+        }.also {
+            android.util.Log.d("LOCKER_TIME", "getLockedMessages thread=$threadId rows=${it.size} total=${android.os.SystemClock.elapsedRealtime() - loadT0}")
         }
     }
 
@@ -554,17 +561,24 @@ class LockerManager(private val context: Context) {
      * envelope in memory, so both shapes read through this one seam.
      */
     private fun decryptRecord(row: LockedMessage, key: SecretKey, fallbackAddress: String = ""): LockedRecord {
+        // TEMP timing (1.10.18 investigation): per-stage cost of one row.
+        val t0 = android.os.SystemClock.elapsedRealtime()
         // The pieces are loaded for this one message only, in order,
         // and joined back into the exact Base64 the row used to carry.
-        val ciphertext = joinCiphertext(
-            context.lockedMessageChunksDB.getByMessage(row.id, row.isMMS).map { it.chunk }
-        )
+        val chunks = context.lockedMessageChunksDB.getByMessage(row.id, row.isMMS).map { it.chunk }
+        val t1 = android.os.SystemClock.elapsedRealtime()
+        val ciphertext = joinCiphertext(chunks)
         val blob = LockerCrypto.EncryptedBlob(
             iv = Base64.decode(row.iv, Base64.NO_WRAP),
             ciphertext = Base64.decode(ciphertext, Base64.NO_WRAP)
         )
+        val t2 = android.os.SystemClock.elapsedRealtime()
         val plaintext = LockerCrypto.decrypt(blob, key).toString(Charsets.UTF_8)
-        return decodeRecord(plaintext, fallbackAddress)
+        val t3 = android.os.SystemClock.elapsedRealtime()
+        val record = decodeRecord(plaintext, fallbackAddress)
+        val t4 = android.os.SystemClock.elapsedRealtime()
+        android.util.Log.d("LOCKER_TIME", "decryptRecord row=${row.id} fetch=${t1 - t0} join+b64=${t2 - t1} keystoreDecrypt=${t3 - t2} jsonDecode=${t4 - t3} total=${t4 - t0} plainBytes=${plaintext.length}")
+        return record
     }
 
     companion object {
