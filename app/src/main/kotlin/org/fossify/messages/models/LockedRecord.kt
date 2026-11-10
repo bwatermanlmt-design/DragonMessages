@@ -57,7 +57,20 @@ data class LockedDisplay(
     val sender: String,
     val body: String,
     val participants: List<String>,
-    val attachments: List<LockedDisplayAttachment> = emptyList()
+    val attachments: List<LockedDisplayAttachment> = emptyList(),
+    /**
+     * The message shell, so the thread view can build a Message from
+     * the envelope alone (1.10.18: the envelope is a separate small
+     * ciphertext, and the big backup decrypts lazily behind it).
+     * SMS: the provider type/status/read/subscription; MMS: the
+     * message box, status 0, read, subscription. Defaults are the
+     * received-message values, for envelopes derived before these
+     * fields existed — deriveDisplay always sets them explicitly.
+     */
+    val type: Int = 1,
+    val status: Int = -1,
+    val read: Boolean = true,
+    val subscriptionId: Int = 0
 )
 
 /** One media part as the display face sees it: its index into the backup's parts list, its mime type, and its file name. */

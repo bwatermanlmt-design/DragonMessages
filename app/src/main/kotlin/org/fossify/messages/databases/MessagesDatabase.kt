@@ -55,7 +55,7 @@ import org.fossify.messages.models.SenderTags
         LockedMessageChunk::class,
         LockedThread::class
     ],
-    version = 20
+    version = 21
 )
 @TypeConverters(Converters::class)
 abstract class MessagesDatabase : RoomDatabase() {
@@ -116,6 +116,7 @@ abstract class MessagesDatabase : RoomDatabase() {
                             .addMigrations(MIGRATION_17_18)
                             .addMigrations(MIGRATION_18_19)
                             .addMigrations(MIGRATION_19_20)
+                            .addMigrations(MIGRATION_20_21)
                             .build()
                     }
                 }
@@ -381,6 +382,27 @@ abstract class MessagesDatabase : RoomDatabase() {
                     )
                     execSQL("DROP TABLE `locked_messages`")
                     execSQL("ALTER TABLE `locked_messages_new` RENAME TO `locked_messages`")
+                }
+            }
+        }
+
+        private val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.apply {
+                    // 1.10.18 split envelope: the display envelope
+                    // becomes its own small ciphertext alongside the
+                    // backup, so opening a thread decrypts a few
+                    // hundred bytes per message instead of the whole
+                    // multi-MB record. Pure ADD COLUMN, nullable with
+                    // no default: existing rows keep null (no envelope
+                    // yet) and the entity declares the columns
+                    // nullable with no default, so Room's schema
+                    // validation passes on upgraded installs. No data
+                    // is touched and no key is needed here — rows
+                    // upgrade in place on first read, and the old
+                    // ciphertext is never modified.
+                    execSQL("ALTER TABLE locked_messages ADD COLUMN `envelope_iv` TEXT")
+                    execSQL("ALTER TABLE locked_messages ADD COLUMN `envelope_ciphertext` TEXT")
                 }
             }
         }

@@ -37,4 +37,17 @@ data class LockedMessage(
     val date: Long,
     /** Base64 of the random 12-byte GCM IV used for this message. */
     val iv: String,
+    /**
+     * The display envelope as its own small ciphertext (1.10.18):
+     * Base64 of the IV and the ciphertext of the LockedDisplay JSON,
+     * encrypted under the same Keystore key as the backup. Null for
+     * rows locked before 1.10.18 — those upgrade in place on first
+     * read. The thread view decrypts only these few hundred bytes
+     * to show the thread; the multi-MB backup decrypts lazily,
+     * behind it, for the media.
+     */
+    @ColumnInfo(name = "envelope_iv")
+    val envelopeIv: String? = null,
+    @ColumnInfo(name = "envelope_ciphertext")
+    val envelopeCiphertext: String? = null,
 )

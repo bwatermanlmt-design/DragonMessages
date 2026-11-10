@@ -279,4 +279,68 @@ class LockerDisplayTest {
         assertTrue(message.participants.isNotEmpty())
         assertTrue(message.read)
     }
+
+    @Test
+    fun smsEnvelopeCarriesShellFields() {
+        // 1.10.18: the envelope carries the message shell, so the
+        // thread view can build a Message from the envelope alone.
+        val display = LockerManager.deriveDisplay(smsBackup())
+        assertEquals(1, display.type)
+        assertEquals(-1, display.status)
+        assertTrue(display.read)
+        assertEquals(1, display.subscriptionId)
+    }
+
+    @Test
+    fun mmsEnvelopeCarriesShellFields() {
+        val display = LockerManager.deriveDisplay(mmsBackup())
+        assertEquals(1, display.type)
+        assertEquals(0, display.status)
+        assertTrue(display.read)
+        assertEquals(1, display.subscriptionId)
+    }
+
+    @Test
+    fun sentMmsEnvelopeShellKeepsMessageBox() {
+        val display = LockerManager.deriveDisplay(mmsBackup(messageBox = 2))
+        assertEquals(2, display.type)
+        assertEquals("", display.sender)
+    }
+
+    @Test
+    fun unreadSmsEnvelopeShellIsUnread() {
+        val display = LockerManager.deriveDisplay(smsBackup().copy(read = 0))
+        assertEquals(false, display.read)
+    }
+
+    @Test
+    fun envelopeJsonWithoutShellFieldsDecodesWithDefaults() {
+        // An envelope written before the shell fields existed still
+        // decodes: the defaults are the received-message values.
+        val json = kotlinx.serialization.json.Json {
+            encodeDefaults = true
+            ignoreUnknownKeys = true
+        }
+        val display = json.decodeFromString<org.fossify.messages.models.LockedDisplay>(
+            """{"sender":"+15551234567","body":"hello","participants":["+15551234567"]}"""
+        )
+        assertEquals(1, display.type)
+        assertEquals(-1, display.status)
+        assertTrue(display.read)
+        assertEquals(0, display.subscriptionId)
+        assertTrue(display.attachments.isEmpty())
+    }
+
+    @Test
+    fun envelopeJsonRoundTripsWithShellFields() {
+        val json = kotlinx.serialization.json.Json {
+            encodeDefaults = true
+            ignoreUnknownKeys = true
+        }
+        val display = LockerManager.deriveDisplay(mmsBackup())
+        val decoded = json.decodeFromString<org.fossify.messages.models.LockedDisplay>(
+            json.encodeToString<org.fossify.messages.models.LockedDisplay>(display)
+        )
+        assertEquals(display, decoded)
+    }
 }

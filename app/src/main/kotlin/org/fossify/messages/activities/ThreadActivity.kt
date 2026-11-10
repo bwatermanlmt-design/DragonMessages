@@ -838,6 +838,55 @@ class ThreadActivity : SimpleActivity() {
                 addSelectedContact(contact)
             }
         }
+
+        // A locked thread's fast load showed shells; the media pass
+        // fills the photos in behind them.
+        startLockedMediaPass()
+    }
+
+    /**
+     * Start the lazy media pass for a locked thread (1.10.18): the
+     * fast load showed shells, and this decrypts the big backups
+     * behind it, swapping each whole message into the adapter as
+     * it lands. Only for a locked thread, and only while this
+     * thread is still showing.
+     */
+    private fun startLockedMediaPass() {
+        if (!isLockedThread) {
+            return
+        }
+        val passThreadId = threadId
+        ensureBackgroundThread {
+            LockerManager(this@ThreadActivity).materializeLockedMedia(passThreadId) { message ->
+                if (!isFinishing && threadId == passThreadId) {
+                    runOnUiThread {
+                        updateLockedMessageMedia(message)
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Swap one locked message's shell for its whole version once
+     * the media pass materializes it (1.10.18). Replace-only: if
+     * the message is no longer in the list (a refresh dropped it,
+     * or the user left the thread), nothing happens. No Room write
+     * — a locked thread's decrypted messages must never be
+     * re-cached — and no refresh, which would rebuild the list
+     * from envelopes and drop the media again.
+     */
+    private fun updateLockedMessageMedia(message: Message) {
+        val index = messages.indexOfFirst { it.id == message.id && it.isMMS == message.isMMS }
+        if (index == -1) {
+            return
+        }
+        messages = messages.toMutableList().apply { set(index, message) }.toSortedMessages()
+        val latestThreadItems = getThreadItems()
+        runOnUiThread {
+            threadItems = latestThreadItems
+            getOrCreateThreadAdapter().updateMessages(latestThreadItems)
+        }
     }
 
     private fun scrollToBottom() {
@@ -2184,6 +2233,9 @@ class ThreadActivity : SimpleActivity() {
                 threadItems = latestThreadItems
                 getOrCreateThreadAdapter().updateMessages(latestThreadItems)
             }
+            // The reload showed shells again; fill the media in
+            // behind them for the new gate session.
+            startLockedMediaPass()
         }
     }
 

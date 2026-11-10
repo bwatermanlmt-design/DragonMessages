@@ -63,6 +63,17 @@ interface LockedMessagesDao {
     @Query("SELECT * FROM locked_messages ORDER BY date ASC, id ASC")
     fun getAll(): List<LockedMessage>
 
+    /** Rows locked before 1.10.18: no separate envelope ciphertext yet. */
+    @Query("SELECT * FROM locked_messages WHERE envelope_ciphertext IS NULL")
+    fun getWithoutEnvelope(): List<LockedMessage>
+
+    @Query("SELECT COUNT(*) FROM locked_messages WHERE envelope_ciphertext IS NULL")
+    fun countWithoutEnvelope(): Int
+
+    /** Store an envelope derived from the row's own backup (1.10.18 upgrade in place). */
+    @Query("UPDATE locked_messages SET envelope_iv = :envelopeIv, envelope_ciphertext = :envelopeCiphertext WHERE id = :id AND is_mms = :isMMS")
+    fun updateEnvelope(id: Long, isMMS: Boolean, envelopeIv: String, envelopeCiphertext: String)
+
     @Query("SELECT COUNT(*) FROM locked_messages WHERE thread_id = :threadId")
     fun countByThread(threadId: Long): Int
 

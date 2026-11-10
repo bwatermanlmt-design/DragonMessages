@@ -32,6 +32,11 @@ class App : FossifyApp() {
 
         ensureBackgroundThread {
             rescheduleAllScheduledMessages()
+            // 1.10.18: upgrade pre-split locked rows to the separate
+            // envelope, so their first thread open is already fast.
+            // No-op when nothing is left to upgrade; a failure on a
+            // row leaves it to upgrade on first read.
+            org.fossify.messages.helpers.LockerManager(this).upgradeEnvelopes()
         }
     }
 

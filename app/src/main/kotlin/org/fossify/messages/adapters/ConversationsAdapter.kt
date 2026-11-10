@@ -25,6 +25,7 @@ import org.fossify.messages.extensions.markThreadMessagesUnread
 import org.fossify.messages.extensions.renameConversation
 import org.fossify.messages.extensions.updateConversationArchivedStatus
 import org.fossify.messages.helpers.FilterEvaluator
+import org.fossify.messages.helpers.LockerGate
 import org.fossify.messages.helpers.LockerManager
 import org.fossify.messages.helpers.isDefaultSmsApp
 import org.fossify.messages.helpers.requestDefaultSmsApp
@@ -177,6 +178,24 @@ class ConversationsAdapter(
 
         val conversationsToMove =
             currentList.filter { selectedKeys.contains(it.hashCode()) } as ArrayList<Conversation>
+        // A Locker move encrypts/decrypts every message in the
+        // background — seconds for a thread with large files — so
+        // show a status while it runs instead of silence (1.10.18).
+        // Plain mailbox moves are instant and need none.
+        val involvesLocker = conversationsToMove.any {
+            (targetMailbox == Mailbox.LOCKER && it.mailbox != Mailbox.LOCKER) ||
+                (it.mailbox == Mailbox.LOCKER && targetMailbox != Mailbox.LOCKER)
+        }
+        val progressDialog = if (involvesLocker) {
+            LockerGate.showLockerProgressDialog(
+                activity,
+                activity.getString(
+                    if (targetMailbox == Mailbox.LOCKER) R.string.locker_moving_to_locker else R.string.locker_unlocking
+                )
+            )
+        } else {
+            null
+        }
         ensureBackgroundThread {
             // The Locker is not a label: moving in encrypts the thread
             // and deletes it from the shared database, and moving out
@@ -225,6 +244,7 @@ class ConversationsAdapter(
             }
 
             activity.runOnUiThread {
+                runCatching { progressDialog?.dismiss() }
                 if (needsRole) {
                     ConfirmationDialog(
                         activity,

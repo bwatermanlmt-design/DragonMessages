@@ -3,8 +3,11 @@ package org.fossify.messages.helpers
 import android.app.AlertDialog
 import android.os.Build
 import android.text.InputType
+import android.view.Gravity
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.TextView
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
@@ -379,6 +382,36 @@ object LockerGate {
             .setOnDismissListener { onDismissed() }
             .show()
         input.requestFocus()
+    }
+
+    /**
+     * A non-cancelable spinner with a status line, for lock/unlock
+     * moves (1.10.18): a thread with large files takes seconds to
+     * move, and until now the move ran silently in the background —
+     * the thread just vanished from the list on success. The caller
+     * shows this before the background work and dismisses it when
+     * the work completes (success or failure). Returns the dialog.
+     */
+    fun showLockerProgressDialog(activity: BaseSimpleActivity, text: String): AlertDialog {
+        val spinner = ProgressBar(activity).apply { isIndeterminate = true }
+        val label = TextView(activity).apply {
+            this.text = text
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = 32 }
+        }
+        val container = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(48, 32, 48, 32)
+            addView(spinner)
+            addView(label)
+        }
+        return AlertDialog.Builder(activity)
+            .setView(container)
+            .setCancelable(false)
+            .show()
     }
 
     /** Set a new locker code (typed twice). [onSet] runs only on a valid match. */

@@ -452,10 +452,25 @@ class LockerManager(private val context: Context) {
     }
 
     /** A locked thread's messages, decrypted, for the thread view. */
+    /**
+     * The thread view's fast load (1.10.18): each row shows from its
+     * separate envelope ciphertext — a few hundred bytes — so the
+     * thread renders in milliseconds, and the multi-MB backup
+     * decrypts lazily behind it, for the media (see
+     * [materializeLockedMedia]). A row whose media is already
+     * materialized for this session comes back whole from the cache.
+     * Rows locked before 1.10.18 have no envelope: they take the
+     * old full-decrypt path once, then upgrade in place (the envelope
+     * is written alongside the untouched backup ciphertext), so the
+     * next open is fast.
+     */
     fun getLockedMessages(threadId: Long): List<Message> {
         // A dead process leaves decrypted media files behind; the
         // next locked view load sweeps every session but this one.
+        // The materialized cache points at this session's files, so
+        // it goes with them.
         LockedMediaCache.clearStaleSessions(context)
+        clearMaterialized()
         // The envelope fallback for rows locked before 1.10.17 (or
         // any message whose backup has no address): the thread's
         // conversation address, fetched once for the whole thread.
@@ -465,16 +480,36 @@ class LockerManager(private val context: Context) {
             ""
         }
         val placeholderText = context.getString(R.string.locker_undecryptable_message)
-        // TEMP timing (1.10.18 investigation): whole-load and per-row display cost.
-        val loadT0 = android.os.SystemClock.elapsedRealtime()
         return try {
             val key = LockerKey.getOrCreateKey()
             context.lockedMessagesDB.getByThread(threadId).map { row ->
                 try {
-                    val dT0 = android.os.SystemClock.elapsedRealtime()
-                    val msg = toDisplayMessage(decryptRecord(row, key, fallbackAddress), row)
-                    android.util.Log.d("LOCKER_TIME", "getLockedMessages row=${row.id} display=${android.os.SystemClock.elapsedRealtime() - dT0}")
-                    msg
+                    materializedMessage(row) ?: run {
+                        // The envelope first: a few hundred bytes.
+                        // A missing or undecryptable envelope falls
+                        // through to the full record below.
+                        val display = if (row.envelopeCiphertext != null) {
+                            try {
+                                decryptEnvelope(row, key)
+                            } catch (e: Exception) {
+                                null
+                            }
+                        } else {
+                            null
+                        }
+                        if (display != null) {
+                            messageShell(display, row)
+                        } else {
+                            // Old shape: full decrypt now (slow once),
+                            // then upgrade the row in place.
+                            val record = decryptRecord(row, key, fallbackAddress)
+                            runCatching {
+                                val (envelopeIv, envelopeCiphertext) = encryptEnvelope(record.display, key)
+                                context.lockedMessagesDB.updateEnvelope(row.id, row.isMMS, envelopeIv, envelopeCiphertext)
+                            }
+                            toDisplayMessage(record, row)
+                        }
+                    }
                 } catch (e: Exception) {
                     // A row that will not decrypt is shown, not
                     // dropped: silently vanishing messages are how
@@ -488,14 +523,89 @@ class LockerManager(private val context: Context) {
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
-        }.also {
-            android.util.Log.d("LOCKER_TIME", "getLockedMessages thread=$threadId rows=${it.size} total=${android.os.SystemClock.elapsedRealtime() - loadT0}")
+        }
+    }
+
+    /**
+     * The lazy half of the fast load: for each row with attachments,
+     * decrypt the full record, materialize its media, and hand the
+     * whole message to [onMessageReady] — the thread view swaps it
+     * into the adapter as it lands, so the photo pops in behind the
+     * text instead of holding the whole thread up. Runs on the
+     * caller's background thread; the callback fires per message, in
+     * row order. Rows already materialized for this session, and rows
+     * with no attachments, are skipped. A row that will not decrypt
+     * is skipped silently — the shell already shows its text, and
+     * the placeholder path in [getLockedMessages] covers the damage.
+     */
+    fun materializeLockedMedia(threadId: Long, onMessageReady: (Message) -> Unit) {
+        val fallbackAddress = try {
+            context.conversationsDB.getConversationWithThreadId(threadId)?.phoneNumber ?: ""
+        } catch (e: Exception) {
+            ""
+        }
+        try {
+            val key = LockerKey.getOrCreateKey()
+            context.lockedMessagesDB.getByThread(threadId).forEach { row ->
+                if (materializedMessage(row) != null) {
+                    return@forEach
+                }
+                val display = try {
+                    decryptEnvelope(row, key)
+                } catch (e: Exception) {
+                    null
+                }
+                // An SMS has no media, and an old-shape row was
+                // already materialized by the fast load itself.
+                if (display == null || display.attachments.isEmpty()) {
+                    return@forEach
+                }
+                try {
+                    val record = decryptRecord(row, key, fallbackAddress)
+                    val message = toDisplayMessage(record, row)
+                    putMaterialized(row, message)
+                    onMessageReady(message)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * One-time envelope upgrade, run in the background at app start:
+     * every row locked before 1.10.18 gets its envelope written
+     * alongside its untouched backup ciphertext, so its first thread
+     * open after the update is already fast. A failure on one row
+     * leaves that row exactly as it was — it upgrades on first read
+     * instead. No-op when nothing is left to upgrade.
+     */
+    fun upgradeEnvelopes() {
+        try {
+            if (context.lockedMessagesDB.countWithoutEnvelope() == 0) {
+                return
+            }
+            val key = LockerKey.getOrCreateKey()
+            context.lockedMessagesDB.getWithoutEnvelope().forEach { row ->
+                try {
+                    val record = decryptRecord(row, key)
+                    val (envelopeIv, envelopeCiphertext) = encryptEnvelope(record.display, key)
+                    context.lockedMessagesDB.updateEnvelope(row.id, row.isMMS, envelopeIv, envelopeCiphertext)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
     /** Delete every decrypted locked-media file, whatever session it was from. */
     fun clearDecryptedMedia() {
         LockedMediaCache.clearAll(context)
+        clearMaterialized()
     }
 
     /** Every locked message as its backup object — the export path. */
@@ -541,12 +651,22 @@ class LockerManager(private val context: Context) {
         val plaintext = json.encodeToString<LockedRecord>(record).toByteArray(Charsets.UTF_8)
         val blob = LockerCrypto.encrypt(plaintext, key)
         val ciphertext = Base64.encodeToString(blob.ciphertext, Base64.NO_WRAP)
+        // 1.10.18: the envelope is ALSO its own small ciphertext,
+        // alongside the record. The thread view decrypts only this
+        // (a few hundred bytes) to show the thread; the multi-MB
+        // record decrypts lazily, behind it, for the media. Same
+        // key, fresh IV; the backup ciphertext is untouched, so
+        // unlock restores exactly as before.
+        val envelopePlaintext = json.encodeToString<LockedDisplay>(record.display).toByteArray(Charsets.UTF_8)
+        val envelopeBlob = LockerCrypto.encrypt(envelopePlaintext, key)
         val row = LockedMessage(
             id = providerId,
             threadId = threadId,
             isMMS = isMMS,
             date = dateMillis,
-            iv = Base64.encodeToString(blob.iv, Base64.NO_WRAP)
+            iv = Base64.encodeToString(blob.iv, Base64.NO_WRAP),
+            envelopeIv = Base64.encodeToString(envelopeBlob.iv, Base64.NO_WRAP),
+            envelopeCiphertext = Base64.encodeToString(envelopeBlob.ciphertext, Base64.NO_WRAP)
         )
         return row to chunkCiphertext(providerId, isMMS, ciphertext)
     }
@@ -561,24 +681,48 @@ class LockerManager(private val context: Context) {
      * envelope in memory, so both shapes read through this one seam.
      */
     private fun decryptRecord(row: LockedMessage, key: SecretKey, fallbackAddress: String = ""): LockedRecord {
-        // TEMP timing (1.10.18 investigation): per-stage cost of one row.
-        val t0 = android.os.SystemClock.elapsedRealtime()
         // The pieces are loaded for this one message only, in order,
         // and joined back into the exact Base64 the row used to carry.
-        val chunks = context.lockedMessageChunksDB.getByMessage(row.id, row.isMMS).map { it.chunk }
-        val t1 = android.os.SystemClock.elapsedRealtime()
-        val ciphertext = joinCiphertext(chunks)
+        val ciphertext = joinCiphertext(
+            context.lockedMessageChunksDB.getByMessage(row.id, row.isMMS).map { it.chunk }
+        )
         val blob = LockerCrypto.EncryptedBlob(
             iv = Base64.decode(row.iv, Base64.NO_WRAP),
             ciphertext = Base64.decode(ciphertext, Base64.NO_WRAP)
         )
-        val t2 = android.os.SystemClock.elapsedRealtime()
         val plaintext = LockerCrypto.decrypt(blob, key).toString(Charsets.UTF_8)
-        val t3 = android.os.SystemClock.elapsedRealtime()
-        val record = decodeRecord(plaintext, fallbackAddress)
-        val t4 = android.os.SystemClock.elapsedRealtime()
-        android.util.Log.d("LOCKER_TIME", "decryptRecord row=${row.id} fetch=${t1 - t0} join+b64=${t2 - t1} keystoreDecrypt=${t3 - t2} jsonDecode=${t4 - t3} total=${t4 - t0} plainBytes=${plaintext.length}")
-        return record
+        return decodeRecord(plaintext, fallbackAddress)
+    }
+
+    /**
+     * Decrypt one row's separate envelope (1.10.18): a few hundred
+     * bytes of LockedDisplay JSON, not the multi-MB record. Null
+     * when the row has no envelope yet (locked before 1.10.18) —
+     * the caller falls back to the full decrypt and upgrades the
+     * row. Throws on a wrong key or tampered data, like decrypt.
+     */
+    private fun decryptEnvelope(row: LockedMessage, key: SecretKey): LockedDisplay? {
+        val envelopeIv = row.envelopeIv ?: return null
+        val envelopeCiphertext = row.envelopeCiphertext ?: return null
+        val blob = LockerCrypto.EncryptedBlob(
+            iv = Base64.decode(envelopeIv, Base64.NO_WRAP),
+            ciphertext = Base64.decode(envelopeCiphertext, Base64.NO_WRAP)
+        )
+        val plaintext = LockerCrypto.decrypt(blob, key).toString(Charsets.UTF_8)
+        return json.decodeFromString<LockedDisplay>(plaintext)
+    }
+
+    /**
+     * Encrypt one display envelope under [key], for the upgrade in
+     * place: the row's own backup already decrypted it, so the
+     * envelope is written alongside the untouched backup ciphertext.
+     * Returns the (iv, ciphertext) Base64 pair.
+     */
+    private fun encryptEnvelope(display: LockedDisplay, key: SecretKey): Pair<String, String> {
+        val plaintext = json.encodeToString<LockedDisplay>(display).toByteArray(Charsets.UTF_8)
+        val blob = LockerCrypto.encrypt(plaintext, key)
+        return Base64.encodeToString(blob.iv, Base64.NO_WRAP) to
+            Base64.encodeToString(blob.ciphertext, Base64.NO_WRAP)
     }
 
     companion object {
@@ -589,6 +733,31 @@ class LockerManager(private val context: Context) {
          * through it safely.
          */
         const val CIPHER_CHUNK_SIZE = 262144
+
+        /**
+         * The materialized messages for this gate session: whole
+         * Messages (shell + media) keyed by the row's composite key.
+         * The files they point at live in this session's media dir,
+         * so the cache is cleared whenever the session is swept
+         * (getLockedMessages) or the media is wiped
+         * (clearDecryptedMedia). A refresh that rebuilds the list
+         * from envelopes finds the whole message here instead of a
+         * bare shell. LockerManager instances are created fresh at
+         * every call site, so the cache has to live here, not on an
+         * instance.
+         */
+        private val materializedMessages = java.util.concurrent.ConcurrentHashMap<String, Message>()
+
+        fun materializedMessage(row: LockedMessage): Message? =
+            materializedMessages["${row.id}:${row.isMMS}"]
+
+        fun putMaterialized(row: LockedMessage, message: Message) {
+            materializedMessages["${row.id}:${row.isMMS}"] = message
+        }
+
+        fun clearMaterialized() {
+            materializedMessages.clear()
+        }
 
         private val recordJson = Json {
             encodeDefaults = true
@@ -639,7 +808,11 @@ class LockerManager(private val context: Context) {
                             listOf(backup.address)
                         } else {
                             fallbackParticipants
-                        }
+                        },
+                        type = backup.type,
+                        status = backup.status,
+                        read = backup.read == 1,
+                        subscriptionId = backup.subscriptionId.toInt()
                     )
                 }
 
@@ -671,7 +844,11 @@ class LockerManager(private val context: Context) {
                         sender = sender,
                         body = mmsDisplayText(backup.parts),
                         participants = participants,
-                        attachments = attachments
+                        attachments = attachments,
+                        type = backup.messageBox,
+                        status = 0,
+                        read = backup.read == 1,
+                        subscriptionId = backup.subscriptionId.toInt()
                     )
                 }
             }
@@ -764,92 +941,82 @@ class LockerManager(private val context: Context) {
     }
 
     /**
-     * Build the display Message for a decrypted record, mirroring
-     * what getMessages/getMMS build from the provider — except the
-     * sender, body, participants, and attachment list come from the
-     * record's display envelope, never re-derived from the backup's
-     * provider-shaped fields. The backup is still the source for the
-     * media bytes themselves (MmsPart.mediaBytes is the one seam)
-     * and for the type/status/subscription the adapter expects.
-     * A part that cannot be materialized keeps the naming label as
-     * fallback, as before.
+     * The message shell from the envelope alone (1.10.18): sender,
+     * body, participants, and the type/status/read/subscription the
+     * adapter expects all come from the display face — the backup
+     * is never touched. Media is not here yet: an MMS shell carries
+     * an empty attachment list, and the media pass fills it in
+     * behind (see [materializeLockedMedia]). The date comes from
+     * the row (millis for both kinds — lockThread stores MMS dates
+     * as millis), so the shell sorts exactly like the full message.
+     */
+    private fun messageShell(display: LockedDisplay, row: LockedMessage): Message {
+        val namePhoto = if (display.sender.isNotEmpty()) {
+            context.getNameAndPhotoFromPhoneNumber(display.sender)
+        } else {
+            null
+        }
+        return Message(
+            id = row.id,
+            body = display.body,
+            type = display.type,
+            status = display.status,
+            participants = display.participants.flatMap { participantsFromAddress(it) }
+                .let { ArrayList(it) },
+            date = (row.date / 1000L).toInt(),
+            read = display.read,
+            threadId = row.threadId,
+            isMMS = row.isMMS,
+            attachment = if (row.isMMS) MessageAttachment(row.id, display.body, ArrayList()) else null,
+            senderPhoneNumber = display.sender,
+            senderName = namePhoto?.name ?: "",
+            senderPhotoUri = namePhoto?.photoUri ?: "",
+            subscriptionId = display.subscriptionId
+        )
+    }
+
+    /**
+     * Build the whole display Message for a decrypted record: the
+     * shell from its envelope, plus the media materialized from the
+     * backup's parts (MmsPart.mediaBytes is the one seam for the
+     * bytes). A part that cannot be materialized keeps the naming
+     * label as fallback, as before. SMS has no media, so it is
+     * just the shell.
      */
     private fun toDisplayMessage(record: LockedRecord, row: LockedMessage): Message {
         val backup = record.backup
         val display = record.display
-        return when (backup) {
-            is SmsBackup -> {
-                val namePhoto = if (display.sender.isNotEmpty()) {
-                    context.getNameAndPhotoFromPhoneNumber(display.sender)
+        if (backup is SmsBackup) {
+            return messageShell(display, row)
+        }
+        // MMS: the shell, with the attachments filled in.
+        val mmsBackup = backup as MmsBackup
+        val attachments = ArrayList<Attachment>()
+        val body = buildString {
+            append(display.body)
+            display.attachments.forEach { descriptor ->
+                // Inline (1.10.16): a part that materializes
+                // renders like a normal attachment; one that
+                // cannot keeps the naming label as fallback.
+                // The descriptor's index is into the backup's
+                // parts list; a corrupt index falls back to
+                // the label rather than crashing the view.
+                val part = mmsBackup.parts.getOrNull(descriptor.partIndex)
+                val attachment = part?.let {
+                    materializeMediaPart(it, row.id, descriptor.partIndex)
+                }
+                if (attachment != null) {
+                    attachments.add(attachment)
                 } else {
-                    null
+                    val label = descriptor.fileName.ifEmpty { descriptor.mimeType }
+                    append("\n[Locked attachment: $label (${descriptor.mimeType})]")
                 }
-                Message(
-                    id = row.id,
-                    body = display.body,
-                    type = backup.type,
-                    status = backup.status,
-                    participants = display.participants.flatMap { participantsFromAddress(it) }
-                        .let { ArrayList(it) },
-                    date = (backup.date / 1000L).toInt(),
-                    read = backup.read == 1,
-                    threadId = row.threadId,
-                    isMMS = false,
-                    attachment = null,
-                    senderPhoneNumber = display.sender,
-                    senderName = namePhoto?.name ?: "",
-                    senderPhotoUri = namePhoto?.photoUri ?: "",
-                    subscriptionId = backup.subscriptionId.toInt()
-                )
-            }
-
-            is MmsBackup -> {
-                val namePhoto = if (display.sender.isNotEmpty()) {
-                    context.getNameAndPhotoFromPhoneNumber(display.sender)
-                } else {
-                    null
-                }
-                val attachments = ArrayList<Attachment>()
-                val body = buildString {
-                    append(display.body)
-                    display.attachments.forEach { descriptor ->
-                        // Inline (1.10.16): a part that materializes
-                        // renders like a normal attachment; one that
-                        // cannot keeps the naming label as fallback.
-                        // The descriptor's index is into the backup's
-                        // parts list; a corrupt index falls back to
-                        // the label rather than crashing the view.
-                        val part = backup.parts.getOrNull(descriptor.partIndex)
-                        val attachment = part?.let {
-                            materializeMediaPart(it, row.id, descriptor.partIndex)
-                        }
-                        if (attachment != null) {
-                            attachments.add(attachment)
-                        } else {
-                            val label = descriptor.fileName.ifEmpty { descriptor.mimeType }
-                            append("\n[Locked attachment: $label (${descriptor.mimeType})]")
-                        }
-                    }
-                }
-                Message(
-                    id = row.id,
-                    body = body,
-                    type = backup.messageBox,
-                    status = 0,
-                    participants = display.participants.flatMap { participantsFromAddress(it) }
-                        .let { ArrayList(it) },
-                    date = backup.date.toInt(),
-                    read = backup.read == 1,
-                    threadId = row.threadId,
-                    isMMS = true,
-                    attachment = MessageAttachment(row.id, display.body, attachments),
-                    senderPhoneNumber = display.sender,
-                    senderName = namePhoto?.name ?: "",
-                    senderPhotoUri = namePhoto?.photoUri ?: "",
-                    subscriptionId = backup.subscriptionId.toInt()
-                )
             }
         }
+        return messageShell(display, row).copy(
+            body = body,
+            attachment = MessageAttachment(row.id, display.body, attachments)
+        )
     }
 
     /**

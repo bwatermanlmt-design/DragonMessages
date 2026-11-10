@@ -9,6 +9,7 @@ import org.fossify.commons.models.RadioItem
 import org.fossify.messages.R
 import org.fossify.messages.helpers.FilterEvaluator
 import org.fossify.messages.helpers.FolderManager
+import org.fossify.messages.helpers.LockerGate
 import org.fossify.messages.helpers.LockerManager
 import org.fossify.messages.helpers.isDefaultSmsApp
 import org.fossify.messages.helpers.requestDefaultSmsApp
@@ -72,6 +73,23 @@ class SendToFolderDialog(
     }
 
     private fun fileTo(targetMailbox: String) {
+        // A Locker move encrypts/decrypts every message in the
+        // background — seconds for a thread with large files — so
+        // show a status while it runs instead of silence (1.10.18).
+        val involvesLocker = conversations.any {
+            (targetMailbox == Mailbox.LOCKER && it.mailbox != Mailbox.LOCKER) ||
+                (it.mailbox == Mailbox.LOCKER && targetMailbox != Mailbox.LOCKER)
+        }
+        val progressDialog = if (involvesLocker) {
+            LockerGate.showLockerProgressDialog(
+                activity,
+                activity.getString(
+                    if (targetMailbox == Mailbox.LOCKER) R.string.locker_moving_to_locker else R.string.locker_unlocking
+                )
+            )
+        } else {
+            null
+        }
         ensureBackgroundThread {
             // The Locker is not a label: filing there encrypts the thread
             // and deletes it from the shared database, and filing out
@@ -111,6 +129,7 @@ class SendToFolderDialog(
             }
 
             activity.runOnUiThread {
+                runCatching { progressDialog?.dismiss() }
                 if (needsRole) {
                     ConfirmationDialog(
                         activity,
