@@ -164,8 +164,12 @@ fun Context.getMessages(
         } else {
             emptyList()
         }
-        return (filtered + scheduled)
-            .filter { it.participants.isNotEmpty() }
+        // Locked rows skip the participants filter: a locked message
+        // can legitimately have no address of its own (an address-less
+        // MMS), and the envelope guarantees a participant whenever
+        // the thread has one — filtering here is what emptied the
+        // locked view. Scheduled messages still go through it.
+        return (filtered + scheduled.filter { it.participants.isNotEmpty() })
             .filterNot { it.isScheduled && it.millis() < System.currentTimeMillis() }
             .sortedWith(compareBy<Message> { it.date }.thenBy { it.id })
             .takeLast(limit)

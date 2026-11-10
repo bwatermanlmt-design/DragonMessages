@@ -1,7 +1,9 @@
 package org.fossify.messages.filtering
 
 import kotlinx.serialization.json.Json
+import org.fossify.messages.helpers.LockerManager
 import org.fossify.messages.models.BackupType
+import org.fossify.messages.models.LockedRecord
 import org.fossify.messages.models.MessagesBackup
 import org.fossify.messages.models.MmsAddress
 import org.fossify.messages.models.MmsBackup
@@ -131,5 +133,61 @@ class LockerSerializationTest {
         val original: MessagesBackup = smsBackup().copy(body = null)
         val encoded = json.encodeToString<MessagesBackup>(original)
         assertEquals(original, json.decodeFromString<MessagesBackup>(encoded))
+    }
+
+    // The 1.10.17 record: a LockedRecord is the backup (metadata
+    // face) plus the display envelope, and old rows holding a bare
+    // backup still decode through the same seam.
+
+    @Test
+    fun lockedRecordRoundTrips() {
+        val backup: MessagesBackup = mmsBackup()
+        val record = LockedRecord(backup, LockerManager.deriveDisplay(backup))
+        val encoded = json.encodeToString<LockedRecord>(record)
+        val decoded = json.decodeFromString<LockedRecord>(encoded)
+        assertEquals(record, decoded)
+        assertEquals(backup, decoded.backup)
+        assertEquals("+15551234567", decoded.display.sender)
+        assertEquals("the photo is in the envelope", decoded.display.body)
+        assertEquals(listOf("+15551234567"), decoded.display.participants)
+        assertEquals(1, decoded.display.attachments.size)
+        assertEquals(1, decoded.display.attachments[0].partIndex)
+        assertEquals("image/jpeg", decoded.display.attachments[0].mimeType)
+        assertEquals("photo.jpg", decoded.display.attachments[0].fileName)
+    }
+
+    @Test
+    fun oldBareBackupDecodesToRecordWithDerivedEnvelope() {
+        val backup: MessagesBackup = smsBackup()
+        val oldPlaintext = json.encodeToString<MessagesBackup>(backup)
+        val record = LockerManager.decodeRecord(oldPlaintext)
+        assertEquals(backup, record.backup)
+        assertEquals("+15551234567", record.display.sender)
+        assertEquals("meet at the usual place, bring the ledger", record.display.body)
+        assertEquals(listOf("+15551234567"), record.display.participants)
+        assertTrue(record.display.attachments.isEmpty())
+    }
+
+    @Test
+    fun newRecordDecodesThroughTheSameSeam() {
+        val backup: MessagesBackup = smsBackup()
+        val record = LockedRecord(backup, LockerManager.deriveDisplay(backup))
+        val encoded = json.encodeToString<LockedRecord>(record)
+        assertEquals(record, LockerManager.decodeRecord(encoded))
+    }
+
+    @Test
+    fun addressLessMmsDerivesFallbackEnvelope() {
+        // The empty-view shape: an MMS with no addresses at all.
+        // The envelope falls back to the thread's conversation
+        // address, so the view never sees an empty participant list.
+        val backup: MessagesBackup = mmsBackup().copy(addresses = emptyList())
+        val record = LockerManager.decodeRecord(
+            json.encodeToString<MessagesBackup>(backup),
+            fallbackAddress = "+15550001111"
+        )
+        assertEquals("+15550001111", record.display.sender)
+        assertEquals(listOf("+15550001111"), record.display.participants)
+        assertEquals("the photo is in the envelope", record.display.body)
     }
 }

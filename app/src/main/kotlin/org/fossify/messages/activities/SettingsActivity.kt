@@ -315,6 +315,7 @@ class SettingsActivity : SimpleActivity() {
     /** The auto-lock timeout as the setting row shows it. */
     private fun autoLockLabel(seconds: Int): String {
         return when (seconds) {
+            0 -> getString(R.string.locker_auto_lock_always)
             15 -> getString(R.string.locker_auto_lock_15_seconds)
             60 -> getString(R.string.locker_auto_lock_1_minute)
             300 -> getString(R.string.locker_auto_lock_5_minutes)

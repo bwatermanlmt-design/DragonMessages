@@ -2,7 +2,11 @@ package org.fossify.messages.filtering
 
 import org.fossify.messages.helpers.LockedMediaCache
 import org.fossify.messages.helpers.LockerManager
+import org.fossify.messages.models.LockedMessage
+import org.fossify.messages.models.MmsAddress
+import org.fossify.messages.models.MmsBackup
 import org.fossify.messages.models.MmsPart
+import org.fossify.messages.models.SmsBackup
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -152,5 +156,127 @@ class LockerDisplayTest {
         assertEquals("12345-0.jpg", LockedMediaCache.fileName(12345L, 0, "image/jpeg"))
         assertEquals("12345-1.jpg", LockedMediaCache.fileName(12345L, 1, "image/jpeg"))
         assertEquals("12345-0.png", LockedMediaCache.fileName(12345L, 0, "image/png"))
+    }
+
+    // The 1.10.17 display envelope: deriveDisplay computes the plain
+    // fields once, at lock time, so the thread view reads them
+    // instead of re-deriving them from the backup's provider-shaped
+    // fields.
+
+    private fun smsBackup(address: String = "+15551234567", body: String? = "hello"): SmsBackup {
+        return SmsBackup(
+            subscriptionId = 1L,
+            address = address,
+            body = body,
+            date = 1794000000000L,
+            dateSent = 1793999999000L,
+            locked = 0,
+            protocol = null,
+            read = 1,
+            status = -1,
+            type = 1,
+            serviceCenter = null
+        )
+    }
+
+    private fun mmsBackup(
+        messageBox: Int = 1,
+        addresses: List<MmsAddress> = listOf(MmsAddress("+15551234567", 137, 106)),
+        parts: List<MmsPart> = listOf(
+            part("text/plain", text = "photo and words", data = ""),
+            part("image/jpeg", filename = "photo.jpg", data = "aGVsbG8=")
+        )
+    ): MmsBackup {
+        return MmsBackup(
+            creator = "com.messages.dragon",
+            contentType = "application/vnd.wap.multipart.related",
+            deliveryReport = 0,
+            date = 1794000000L,
+            dateSent = 1793999999L,
+            locked = 0,
+            messageType = 132,
+            messageBox = messageBox,
+            read = 1,
+            readReport = 0,
+            seen = 1,
+            textOnly = 0,
+            status = null,
+            subject = null,
+            subjectCharSet = null,
+            subscriptionId = 1L,
+            transactionId = "T123",
+            addresses = addresses,
+            parts = parts
+        )
+    }
+
+    @Test
+    fun smsEnvelopeCarriesSenderBodyAndParticipant() {
+        val display = LockerManager.deriveDisplay(smsBackup())
+        assertEquals("+15551234567", display.sender)
+        assertEquals("hello", display.body)
+        assertEquals(listOf("+15551234567"), display.participants)
+        assertTrue(display.attachments.isEmpty())
+    }
+
+    @Test
+    fun mmsEnvelopeCarriesFromSenderAndMediaDescriptor() {
+        val display = LockerManager.deriveDisplay(mmsBackup())
+        assertEquals("+15551234567", display.sender)
+        assertEquals("photo and words", display.body)
+        assertEquals(listOf("+15551234567"), display.participants)
+        assertEquals(1, display.attachments.size)
+        // The descriptor's index is into the full parts list, so the
+        // display finds the photo part, not the text part.
+        assertEquals(1, display.attachments[0].partIndex)
+        assertEquals("image/jpeg", display.attachments[0].mimeType)
+        assertEquals("photo.jpg", display.attachments[0].fileName)
+    }
+
+    @Test
+    fun sentMmsEnvelopeHasEmptySenderButKeepsParticipants() {
+        // messageBox 2 is SENT: the sender is the user, so it stays
+        // empty, but the TO addresses are still the participants.
+        val display = LockerManager.deriveDisplay(
+            mmsBackup(
+                messageBox = 2,
+                addresses = listOf(MmsAddress("+15559876543", 151, 106))
+            )
+        )
+        assertEquals("", display.sender)
+        assertEquals(listOf("+15559876543"), display.participants)
+    }
+
+    @Test
+    fun addressLessMmsEnvelopeFallsBackToConversationAddress() {
+        // The empty-view shape: no addresses anywhere in the backup.
+        // The thread's conversation address stands in for both the
+        // sender and the participants.
+        val display = LockerManager.deriveDisplay(
+            mmsBackup(addresses = emptyList()),
+            fallbackAddress = "+15550001111"
+        )
+        assertEquals("+15550001111", display.sender)
+        assertEquals(listOf("+15550001111"), display.participants)
+        assertEquals("photo and words", display.body)
+    }
+
+    @Test
+    fun placeholderKeepsRowIdentityAndNeverVanishes() {
+        val row = LockedMessage(
+            id = 987L,
+            threadId = 12L,
+            isMMS = true,
+            date = 1794000000000L,
+            iv = "AA=="
+        )
+        val message = LockerManager.placeholderMessage(row, "+15550001111", "damaged copy")
+        assertEquals(987L, message.id)
+        assertEquals(12L, message.threadId)
+        assertTrue(message.isMMS)
+        assertEquals(1794000000, message.date)
+        assertEquals("damaged copy", message.body)
+        assertTrue(message.participants.isNotEmpty())
+        assertTrue(message.read)
     }
 }

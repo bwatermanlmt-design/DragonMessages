@@ -39,8 +39,10 @@ object LockerGate {
     /** The auto-lock default: re-lock 30s after leaving messages. */
     const val DEFAULT_AUTO_LOCK_SECONDS = 30
 
-    /** The auto-lock choices the setting offers, in seconds. */
-    val AUTO_LOCK_OPTIONS_SECONDS = intArrayOf(15, 30, 60, 300)
+    /** The auto-lock choices the setting offers, in seconds. 0 is
+     * "always": navigating away always requires the code on next
+     * entry, with no grace window (Ben, Nov 9 2026). */
+    val AUTO_LOCK_OPTIONS_SECONDS = intArrayOf(0, 15, 30, 60, 300)
 
     /**
      * The gate session (revision 13, Ben's rule Nov 8 2026): the Locker
@@ -126,17 +128,44 @@ object LockerGate {
     }
 
     /**
+     * The user is back in the messages UI — but only clear the away
+     * stamp when the timeout has NOT expired. The plain
+     * [markBackInMessages] unconditionally clears it, which is the
+     * gate bug: returning to the main list after a long absence
+     * cleared the stamp before any gate check ran, so the Locker
+     * opened without a prompt (MainActivity and ThreadActivity both
+     * called it from onResume). With the timeout expired the stamp
+     * stays, and the next Locker entry prompts. With timeout 0
+     * ("always") the stamp is never cleared here, so any away
+     * prompts on return. Pure in its inputs — unit-tests run it
+     * on the JVM.
+     */
+    fun markBackInMessagesIfWithinTimeout(nowMillis: Long = System.currentTimeMillis(), timeoutSeconds: Int = DEFAULT_AUTO_LOCK_SECONDS) {
+        if (!needsAuth(nowMillis, timeoutSeconds)) {
+            lastLeftMessagesAtMillis = 0L
+        }
+    }
+
+    /**
      * Does opening the Locker need the gate now? Yes when the gate
      * never passed in this process, or when the user has been away
-     * from messages longer than [timeoutSeconds]. Pure in its inputs
-     * (apart from the session it reads), so unit-tests run it on the JVM.
+     * from messages longer than [timeoutSeconds]. A timeout of 0
+     * means "always": any away stamp prompts, with no grace window.
+     * Pure in its inputs (apart from the session it reads), so
+     * unit-tests run it on the JVM.
      */
     fun needsAuth(nowMillis: Long = System.currentTimeMillis(), timeoutSeconds: Int = DEFAULT_AUTO_LOCK_SECONDS): Boolean {
         if (lastUnlockedAtMillis == 0L) {
             return true
         }
         val leftAt = lastLeftMessagesAtMillis
-        return leftAt != 0L && nowMillis - leftAt > timeoutSeconds * 1000L
+        if (leftAt == 0L) {
+            return false
+        }
+        if (timeoutSeconds == 0) {
+            return true
+        }
+        return nowMillis - leftAt > timeoutSeconds * 1000L
     }
 
     /**

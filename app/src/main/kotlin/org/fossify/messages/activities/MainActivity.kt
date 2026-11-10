@@ -156,6 +156,10 @@ class MainActivity : SimpleActivity() {
         // the away marker, or a return after a long absence would
         // silently clear it and skip the gate. A cancelled gate
         // closes this list rather than leaving locked threads open.
+        // The else branch clears conditionally, not unconditionally:
+        // an unconditional clear here was the gate bug — returning
+        // to the main list after a long absence wiped the stamp
+        // before any gate check ran.
         if (mailboxFilter == Mailbox.LOCKER) {
             LockerGate.authenticateIfNeeded(
                 this,
@@ -164,7 +168,7 @@ class MainActivity : SimpleActivity() {
                 onCancelled = { finish() }
             )
         } else {
-            LockerGate.markBackInMessages()
+            LockerGate.markBackInMessagesIfWithinTimeout(timeoutSeconds = config.lockerAutoLockSeconds)
         }
         updateMenuColors()
         refreshMenuItems()

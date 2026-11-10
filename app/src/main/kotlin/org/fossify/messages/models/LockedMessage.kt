@@ -5,10 +5,13 @@ import androidx.room.Entity
 
 /**
  * One locked message: the encrypted backup of a single SMS or MMS that
- * used to live in Android's shared message database. The plaintext is a
- * serialized SmsBackup or MmsBackup (see LockerCrypto) — unlocking is
- * decrypt, deserialize, and write back through MessagesWriter, so the
- * locked copy round-trips exactly, attachments included.
+ * used to live in Android's shared message database. The plaintext is
+ * a serialized LockedRecord (see models/LockedRecord.kt): the
+ * SmsBackup/MmsBackup as the metadata face, plus a plain display
+ * envelope. Rows locked before 1.10.17 hold a bare backup instead;
+ * the reader accepts both. Unlocking is decrypt, deserialize, and
+ * write back through MessagesWriter, so the locked copy round-trips
+ * exactly, attachments included.
  *
  * The row is keyed by the message's original provider id; [threadId]
  * and [date] (millis, from the backup) let the Locker view list and

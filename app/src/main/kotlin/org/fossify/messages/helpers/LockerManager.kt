@@ -6,11 +6,14 @@ import android.provider.Telephony.Sms
 import android.util.Base64
 import com.google.android.mms.pdu_alt.PduHeaders
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.parseToJsonElement
 import org.fossify.commons.extensions.getLongValue
 import org.fossify.commons.extensions.notificationManager
 import org.fossify.commons.extensions.queryCursor
 import org.fossify.commons.models.PhoneNumber
 import org.fossify.commons.models.SimpleContact
+import org.fossify.messages.R
 import org.fossify.messages.extensions.config
 import org.fossify.messages.extensions.conversationsDB
 import org.fossify.messages.filtering.LockerCrypto
@@ -22,8 +25,11 @@ import org.fossify.messages.extensions.lockedThreadsDB
 import org.fossify.messages.extensions.messagesDB
 import org.fossify.messages.messaging.MessagingUtils.Companion.ADDRESS_SEPARATOR
 import org.fossify.messages.models.Conversation
+import org.fossify.messages.models.LockedDisplay
+import org.fossify.messages.models.LockedDisplayAttachment
 import org.fossify.messages.models.LockedMessage
 import org.fossify.messages.models.LockedMessageChunk
+import org.fossify.messages.models.LockedRecord
 import org.fossify.messages.models.LockedThread
 import org.fossify.messages.models.Mailbox
 import org.fossify.messages.models.Message
@@ -47,6 +53,14 @@ import javax.crypto.SecretKey
  * Failure direction is always "keep a copy": encrypt-and-store happens
  * before any delete, and restore happens before any store row is
  * dropped. A crash mid-move leaves a duplicate, never a loss.
+ *
+ * Each stored message is a LockedRecord (see models/LockedRecord.kt):
+ * the MessagesBackup JSON as the metadata face — unlock restores
+ * from it exactly as before — plus a plain display envelope derived
+ * once at lock time, which the thread view reads directly instead of
+ * re-deriving meaning from the provider schema. Rows locked before
+ * 1.10.17 hold a bare backup; the reader accepts both shapes and
+ * derives the envelope in memory for old rows.
  *
  * The thread view reads locked threads from here (see getMessages):
  * the provider has nothing for them, by design.
@@ -99,23 +113,29 @@ class LockerManager(private val context: Context) {
             val allChunks = mutableListOf<LockedMessageChunk>()
 
             reader.getSmsBackupsForThread(threadId).forEach { (id, backup) ->
-                val (row, chunks) = encryptBackup(backup, id, isMMS = false, threadId, backup.date, key)
+                val (row, chunks) = encryptBackup(backup, id, isMMS = false, threadId, backup.date, key, conversation.phoneNumber)
                 rows.add(row)
                 allChunks.addAll(chunks)
             }
             reader.getMmsBackupsForThread(threadId).forEach { (id, backup) ->
                 // MMS dates are seconds; the store orders on millis.
-                val (row, chunks) = encryptBackup(backup, id, isMMS = true, threadId, backup.date * 1000L, key)
+                val (row, chunks) = encryptBackup(backup, id, isMMS = true, threadId, backup.date * 1000L, key, conversation.phoneNumber)
                 rows.add(row)
                 allChunks.addAll(chunks)
             }
 
+            // A thread with no messages has nothing to lock: refuse
+            // rather than recording an empty locked thread, which
+            // would show an empty view and could never unlock to
+            // anything.
+            if (rows.isEmpty()) {
+                return false
+            }
+
             // Store first, delete second: a failure here leaves the
             // thread untouched in the provider.
-            if (rows.isNotEmpty()) {
-                context.lockedMessagesDB.insertAll(rows)
-                context.lockedMessageChunksDB.insertAll(allChunks)
-            }
+            context.lockedMessagesDB.insertAll(rows)
+            context.lockedMessageChunksDB.insertAll(allChunks)
             context.lockedThreadsDB.insert(
                 LockedThread(
                     threadId = threadId,
@@ -342,12 +362,22 @@ class LockerManager(private val context: Context) {
         return try {
             val reader = MessagesReader(context)
             val key = LockerKey.getOrCreateKey()
+            // The display envelope falls back to the thread's
+            // conversation address when a message has none of its
+            // own (an address-less MMS): the conversation row is
+            // what survives the lock, so it is the fallback that
+            // is still true at display time.
+            val fallbackAddress = try {
+                context.conversationsDB.getConversationWithThreadId(threadId)?.phoneNumber ?: ""
+            } catch (e: Exception) {
+                ""
+            }
             val (row, chunks) = if (isMMS) {
                 val (id, backup) = reader.getMmsBackupById(messageId) ?: return false
-                encryptBackup(backup, id, isMMS = true, threadId, backup.date * 1000L, key)
+                encryptBackup(backup, id, isMMS = true, threadId, backup.date * 1000L, key, fallbackAddress)
             } else {
                 val (id, backup) = reader.getSmsBackupById(messageId) ?: return false
-                encryptBackup(backup, id, isMMS = false, threadId, backup.date, key)
+                encryptBackup(backup, id, isMMS = false, threadId, backup.date, key, fallbackAddress)
             }
 
             context.lockedMessagesDB.insert(row)
@@ -427,14 +457,28 @@ class LockerManager(private val context: Context) {
         // A dead process leaves decrypted media files behind; the
         // next locked view load sweeps every session but this one.
         LockedMediaCache.clearStaleSessions(context)
+        // The envelope fallback for rows locked before 1.10.17 (or
+        // any message whose backup has no address): the thread's
+        // conversation address, fetched once for the whole thread.
+        val fallbackAddress = try {
+            context.conversationsDB.getConversationWithThreadId(threadId)?.phoneNumber ?: ""
+        } catch (e: Exception) {
+            ""
+        }
+        val placeholderText = context.getString(R.string.locker_undecryptable_message)
         return try {
             val key = LockerKey.getOrCreateKey()
-            context.lockedMessagesDB.getByThread(threadId).mapNotNull { row ->
+            context.lockedMessagesDB.getByThread(threadId).map { row ->
                 try {
-                    toDisplayMessage(decryptBackup(row, key), row)
+                    toDisplayMessage(decryptRecord(row, key, fallbackAddress), row)
                 } catch (e: Exception) {
+                    // A row that will not decrypt is shown, not
+                    // dropped: silently vanishing messages are how
+                    // the empty locked view happened, and a
+                    // placeholder tells the user the copy is damaged
+                    // instead of pretending the thread is empty.
                     e.printStackTrace()
-                    null
+                    placeholderMessage(row, fallbackAddress, placeholderText)
                 }
             }
         } catch (e: Exception) {
@@ -480,9 +524,15 @@ class LockerManager(private val context: Context) {
         isMMS: Boolean,
         threadId: Long,
         dateMillis: Long,
-        key: SecretKey
+        key: SecretKey,
+        fallbackAddress: String = ""
     ): Pair<LockedMessage, List<LockedMessageChunk>> {
-        val plaintext = json.encodeToString<MessagesBackup>(backup).toByteArray(Charsets.UTF_8)
+        // One Locker-native record: the backup as the metadata face
+        // (unlock restores from it exactly as before) plus the
+        // display envelope derived now, while the thread's address
+        // is still at hand.
+        val record = LockedRecord(backup, deriveDisplay(backup, fallbackAddress))
+        val plaintext = json.encodeToString<LockedRecord>(record).toByteArray(Charsets.UTF_8)
         val blob = LockerCrypto.encrypt(plaintext, key)
         val ciphertext = Base64.encodeToString(blob.ciphertext, Base64.NO_WRAP)
         val row = LockedMessage(
@@ -496,6 +546,15 @@ class LockerManager(private val context: Context) {
     }
 
     private fun decryptBackup(row: LockedMessage, key: SecretKey): MessagesBackup {
+        return decryptRecord(row, key).backup
+    }
+
+    /**
+     * Decrypt one row to its full record. Old rows (locked before
+     * 1.10.17) hold a bare backup; [decodeRecord] derives their
+     * envelope in memory, so both shapes read through this one seam.
+     */
+    private fun decryptRecord(row: LockedMessage, key: SecretKey, fallbackAddress: String = ""): LockedRecord {
         // The pieces are loaded for this one message only, in order,
         // and joined back into the exact Base64 the row used to carry.
         val ciphertext = joinCiphertext(
@@ -506,7 +565,7 @@ class LockerManager(private val context: Context) {
             ciphertext = Base64.decode(ciphertext, Base64.NO_WRAP)
         )
         val plaintext = LockerCrypto.decrypt(blob, key).toString(Charsets.UTF_8)
-        return json.decodeFromString<MessagesBackup>(plaintext)
+        return decodeRecord(plaintext, fallbackAddress)
     }
 
     companion object {
@@ -517,6 +576,147 @@ class LockerManager(private val context: Context) {
          * through it safely.
          */
         const val CIPHER_CHUNK_SIZE = 262144
+
+        private val recordJson = Json {
+            encodeDefaults = true
+            ignoreUnknownKeys = true
+        }
+
+        /**
+         * Decode one decrypted row's plaintext to its record. A
+         * 1.10.17 row carries a LockedRecord (it has a top-level
+         * "display" key); an older row carries a bare MessagesBackup
+         * and its envelope is derived here, in memory, with the
+         * same derivation the writer uses — so old rows display
+         * exactly like new ones without any re-encryption. Pure —
+         * unit-tests run it on the JVM.
+         */
+        fun decodeRecord(plaintext: String, fallbackAddress: String = ""): LockedRecord {
+            val element = recordJson.parseToJsonElement(plaintext).jsonObject
+            return if (element.containsKey("display")) {
+                recordJson.decodeFromString<LockedRecord>(plaintext)
+            } else {
+                val backup = recordJson.decodeFromString<MessagesBackup>(plaintext)
+                LockedRecord(backup, deriveDisplay(backup, fallbackAddress))
+            }
+        }
+
+        /**
+         * The display envelope for a backup, derived once — at lock
+         * time by the writer, in memory for older rows by the reader.
+         * [fallbackAddress] is the thread's conversation address: it
+         * stands in wherever the backup has no address of its own,
+         * so a received message's sender and a thread's participants
+         * are never empty. A sent MMS keeps an empty sender (the
+         * message is the user's own), but still takes the fallback
+         * as its participants. Pure — unit-tests run it on the JVM.
+         */
+        fun deriveDisplay(backup: MessagesBackup, fallbackAddress: String = ""): LockedDisplay {
+            val fallbackParticipants = fallbackAddress
+                .split(ADDRESS_SEPARATOR)
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+            return when (backup) {
+                is SmsBackup -> {
+                    val sender = backup.address.ifEmpty { fallbackAddress }
+                    LockedDisplay(
+                        sender = sender,
+                        body = backup.body ?: "",
+                        participants = if (backup.address.isNotEmpty()) {
+                            listOf(backup.address)
+                        } else {
+                            fallbackParticipants
+                        }
+                    )
+                }
+
+                is MmsBackup -> {
+                    val isSent = backup.messageBox == Mms.MESSAGE_BOX_SENT ||
+                        backup.messageBox == Mms.MESSAGE_BOX_FAILED
+                    val sender = if (isSent) {
+                        ""
+                    } else {
+                        backup.addresses.firstOrNull { it.type == PduHeaders.FROM }?.address
+                            ?: backup.addresses.firstOrNull()?.address
+                            ?: fallbackAddress
+                    }
+                    val participants = backup.addresses.map { it.address }
+                        .filter { it.isNotEmpty() }
+                        .ifEmpty { fallbackParticipants }
+                    val attachments = backup.parts.mapIndexedNotNull { index, part ->
+                        if (part.isNonText()) {
+                            LockedDisplayAttachment(
+                                partIndex = index,
+                                mimeType = part.contentType,
+                                fileName = part.filename ?: part.name ?: ""
+                            )
+                        } else {
+                            null
+                        }
+                    }
+                    LockedDisplay(
+                        sender = sender,
+                        body = mmsDisplayText(backup.parts),
+                        participants = participants,
+                        attachments = attachments
+                    )
+                }
+            }
+        }
+
+        /**
+         * The stand-in for a row that will not decrypt: the thread
+         * shows that this message's locked copy is damaged instead
+         * of pretending the thread is empty. It carries the row's
+         * own id, date, thread, and kind, and the fallback address
+         * as its participant, so it sorts and renders like any
+         * other message. Pure — unit-tests run it on the JVM. (No
+         * contact lookup here: a damaged row gets the number as
+         * its name, which is all the thread header needs.)
+         */
+        fun placeholderMessage(row: LockedMessage, fallbackAddress: String, placeholderText: String): Message {
+            val participants = if (fallbackAddress.isNotEmpty()) {
+                fallbackAddress.split(ADDRESS_SEPARATOR).map { number ->
+                    SimpleContact(
+                        rawId = 0,
+                        contactId = 0,
+                        name = number.trim(),
+                        photoUri = "",
+                        phoneNumbers = arrayListOf(PhoneNumber(number.trim(), 0, "", number.trim())),
+                        birthdays = ArrayList(),
+                        anniversaries = ArrayList()
+                    )
+                }.let { ArrayList(it) }
+            } else {
+                arrayListOf(
+                    SimpleContact(
+                        rawId = 0,
+                        contactId = 0,
+                        name = "",
+                        photoUri = "",
+                        phoneNumbers = arrayListOf(PhoneNumber("", 0, "", "")),
+                        birthdays = ArrayList(),
+                        anniversaries = ArrayList()
+                    )
+                )
+            }
+            return Message(
+                id = row.id,
+                body = placeholderText,
+                type = 1,
+                status = -1,
+                participants = participants,
+                date = (row.date / 1000L).toInt(),
+                read = true,
+                threadId = row.threadId,
+                isMMS = row.isMMS,
+                attachment = null,
+                senderPhoneNumber = fallbackAddress,
+                senderName = fallbackAddress,
+                senderPhotoUri = "",
+                subscriptionId = 0
+            )
+        }
 
         /**
          * A locked MMS's display text, from its text parts. MMS text
@@ -551,66 +751,70 @@ class LockerManager(private val context: Context) {
     }
 
     /**
-     * Build the display Message for a decrypted backup, mirroring what
-     * getMessages/getMMS build from the provider. MMS text comes from
-     * the TEXT column (see [mmsDisplayText]); media parts render
-     * inline (1.10.16) — the decrypted bytes are written to the
-     * session media cache and handed to the adapter as a real
-     * [MessageAttachment], exactly like a normal MMS. A part that
-     * cannot be materialized keeps the naming label as fallback.
+     * Build the display Message for a decrypted record, mirroring
+     * what getMessages/getMMS build from the provider — except the
+     * sender, body, participants, and attachment list come from the
+     * record's display envelope, never re-derived from the backup's
+     * provider-shaped fields. The backup is still the source for the
+     * media bytes themselves (MmsPart.mediaBytes is the one seam)
+     * and for the type/status/subscription the adapter expects.
+     * A part that cannot be materialized keeps the naming label as
+     * fallback, as before.
      */
-    private fun toDisplayMessage(backup: MessagesBackup, row: LockedMessage): Message {
+    private fun toDisplayMessage(record: LockedRecord, row: LockedMessage): Message {
+        val backup = record.backup
+        val display = record.display
         return when (backup) {
             is SmsBackup -> {
-                val address = backup.address
-                val namePhoto = context.getNameAndPhotoFromPhoneNumber(address)
+                val namePhoto = if (display.sender.isNotEmpty()) {
+                    context.getNameAndPhotoFromPhoneNumber(display.sender)
+                } else {
+                    null
+                }
                 Message(
                     id = row.id,
-                    body = backup.body ?: "",
+                    body = display.body,
                     type = backup.type,
                     status = backup.status,
-                    participants = participantsFromAddress(address),
+                    participants = display.participants.flatMap { participantsFromAddress(it) }
+                        .let { ArrayList(it) },
                     date = (backup.date / 1000L).toInt(),
                     read = backup.read == 1,
                     threadId = row.threadId,
                     isMMS = false,
                     attachment = null,
-                    senderPhoneNumber = address,
-                    senderName = namePhoto.name,
-                    senderPhotoUri = namePhoto.photoUri ?: "",
+                    senderPhoneNumber = display.sender,
+                    senderName = namePhoto?.name ?: "",
+                    senderPhotoUri = namePhoto?.photoUri ?: "",
                     subscriptionId = backup.subscriptionId.toInt()
                 )
             }
 
             is MmsBackup -> {
-                val isSent = backup.messageBox == Mms.MESSAGE_BOX_SENT ||
-                    backup.messageBox == Mms.MESSAGE_BOX_FAILED
-                val senderAddress = if (isSent) {
-                    ""
-                } else {
-                    backup.addresses.firstOrNull { it.type == PduHeaders.FROM }?.address
-                        ?: backup.addresses.firstOrNull()?.address ?: ""
-                }
-                val namePhoto = if (senderAddress.isNotEmpty()) {
-                    context.getNameAndPhotoFromPhoneNumber(senderAddress)
+                val namePhoto = if (display.sender.isNotEmpty()) {
+                    context.getNameAndPhotoFromPhoneNumber(display.sender)
                 } else {
                     null
                 }
-                val text = mmsDisplayText(backup.parts)
-                val mediaParts = backup.parts.filter { it.isNonText() }
                 val attachments = ArrayList<Attachment>()
                 val body = buildString {
-                    append(text)
-                    mediaParts.forEachIndexed { index, part ->
+                    append(display.body)
+                    display.attachments.forEach { descriptor ->
                         // Inline (1.10.16): a part that materializes
                         // renders like a normal attachment; one that
                         // cannot keeps the naming label as fallback.
-                        val attachment = materializeMediaPart(part, row.id, index)
+                        // The descriptor's index is into the backup's
+                        // parts list; a corrupt index falls back to
+                        // the label rather than crashing the view.
+                        val part = backup.parts.getOrNull(descriptor.partIndex)
+                        val attachment = part?.let {
+                            materializeMediaPart(it, row.id, descriptor.partIndex)
+                        }
                         if (attachment != null) {
                             attachments.add(attachment)
                         } else {
-                            val label = part.filename ?: part.name ?: part.contentType
-                            append("\n[Locked attachment: $label (${part.contentType})]")
+                            val label = descriptor.fileName.ifEmpty { descriptor.mimeType }
+                            append("\n[Locked attachment: $label (${descriptor.mimeType})]")
                         }
                     }
                 }
@@ -619,26 +823,14 @@ class LockerManager(private val context: Context) {
                     body = body,
                     type = backup.messageBox,
                     status = 0,
-                    participants = backup.addresses.map { address ->
-                        val photo = context.getNameAndPhotoFromPhoneNumber(address.address)
-                        SimpleContact(
-                            rawId = 0,
-                            contactId = 0,
-                            name = photo.name,
-                            photoUri = photo.photoUri ?: "",
-                            phoneNumbers = arrayListOf(
-                                PhoneNumber(address.address, 0, "", address.address)
-                            ),
-                            birthdays = ArrayList(),
-                            anniversaries = ArrayList()
-                        )
-                    }.let { ArrayList(it) },
+                    participants = display.participants.flatMap { participantsFromAddress(it) }
+                        .let { ArrayList(it) },
                     date = backup.date.toInt(),
                     read = backup.read == 1,
                     threadId = row.threadId,
                     isMMS = true,
-                    attachment = MessageAttachment(row.id, text, attachments),
-                    senderPhoneNumber = senderAddress,
+                    attachment = MessageAttachment(row.id, display.body, attachments),
+                    senderPhoneNumber = display.sender,
                     senderName = namePhoto?.name ?: "",
                     senderPhotoUri = namePhoto?.photoUri ?: "",
                     subscriptionId = backup.subscriptionId.toInt()

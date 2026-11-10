@@ -152,4 +152,62 @@ class LockerGateTest {
         // 31s after the second departure: the gate is due.
         assertTrue(LockerGate.needsAuth(1_052_000, timeoutSeconds = 30))
     }
+
+    // "Always" (revision 14, 1.10.17): timeout 0 means any away
+    // stamp prompts, with no grace window.
+
+    @Test
+    fun alwaysTimeoutNeedsAuthAfterAnyAway() {
+        LockerGate.resetSession()
+        LockerGate.markUnlocked(nowMillis = 1_000_000)
+        LockerGate.markLeftMessages(nowMillis = 1_001_000)
+        // One second away: the gate is already due.
+        assertTrue(LockerGate.needsAuth(1_002_000, timeoutSeconds = 0))
+    }
+
+    @Test
+    fun alwaysTimeoutNeedsNoAuthWhileInMessages() {
+        LockerGate.resetSession()
+        LockerGate.markUnlocked(nowMillis = 1_000_000)
+        // Never left: no away stamp, no prompt.
+        assertTrue(!LockerGate.needsAuth(1_002_000, timeoutSeconds = 0))
+    }
+
+    // Conditional resume-clear (revision 14, 1.10.17): returning to
+    // the main list must not wipe the away stamp after the timeout
+    // has expired — that was the gate bug, the Locker opening
+    // unprompted after a long absence.
+
+    @Test
+    fun conditionalClearKeepsStampPastTimeout() {
+        LockerGate.resetSession()
+        LockerGate.markUnlocked(nowMillis = 1_000_000)
+        LockerGate.markLeftMessages(nowMillis = 1_001_000)
+        // 31s away: past the timeout, so the stamp must survive the
+        // return — the next Locker entry still prompts.
+        LockerGate.markBackInMessagesIfWithinTimeout(1_032_000, timeoutSeconds = 30)
+        assertTrue(LockerGate.needsAuth(1_032_000, timeoutSeconds = 30))
+    }
+
+    @Test
+    fun conditionalClearClearsStampWithinTimeout() {
+        LockerGate.resetSession()
+        LockerGate.markUnlocked(nowMillis = 1_000_000)
+        LockerGate.markLeftMessages(nowMillis = 1_001_000)
+        // 10s away: inside the timeout, so the return clears the
+        // stamp as before.
+        LockerGate.markBackInMessagesIfWithinTimeout(1_011_000, timeoutSeconds = 30)
+        assertTrue(!LockerGate.needsAuth(1_032_000, timeoutSeconds = 30))
+    }
+
+    @Test
+    fun conditionalClearNeverClearsUnderAlways() {
+        LockerGate.resetSession()
+        LockerGate.markUnlocked(nowMillis = 1_000_000)
+        LockerGate.markLeftMessages(nowMillis = 1_001_000)
+        // 5s away under "always": the stamp must survive, so the
+        // next Locker entry prompts.
+        LockerGate.markBackInMessagesIfWithinTimeout(1_006_000, timeoutSeconds = 0)
+        assertTrue(LockerGate.needsAuth(1_006_000, timeoutSeconds = 0))
+    }
 }

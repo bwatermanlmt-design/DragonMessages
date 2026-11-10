@@ -345,7 +345,11 @@ class ThreadActivity : SimpleActivity() {
                 onCancelled = { finish() }
             )
         } else {
-            LockerGate.markBackInMessages()
+            // Conditional, not unconditional: an unconditional clear
+            // here was the gate bug — returning to an unlocked thread
+            // after a long absence wiped the away stamp before any
+            // gate check ran, so the Locker then opened unprompted.
+            LockerGate.markBackInMessagesIfWithinTimeout(timeoutSeconds = config.lockerAutoLockSeconds)
             showThreadContent()
         }
         setupTopAppBar(
