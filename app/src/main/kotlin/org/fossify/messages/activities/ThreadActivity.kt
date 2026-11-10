@@ -168,6 +168,7 @@ import org.fossify.messages.helpers.IS_LAUNCHED_FROM_SHORTCUT
 import org.fossify.messages.helpers.IS_RECYCLE_BIN
 import org.fossify.messages.helpers.LockerGate
 import org.fossify.messages.helpers.LockerManager
+import org.fossify.messages.helpers.MAILBOX_FILTER
 import org.fossify.messages.helpers.MESSAGES_LIMIT
 import org.fossify.messages.helpers.PICK_CONTACT_INTENT
 import org.fossify.messages.helpers.PICK_DOCUMENT_INTENT
@@ -358,6 +359,15 @@ class ThreadActivity : SimpleActivity() {
             topBarColor = getProperBackgroundColor()
         )
 
+        // The arrow goes up to this thread's mailbox list when the thread
+        // is the task root (notification / deep-link entry, where finish()
+        // would drop to the launcher); otherwise it finishes back to the
+        // list below us, as before. Re-set on every resume: setupTopAppBar
+        // installs its own finish() listener each time.
+        binding.threadAppbar.requireToolbar().setNavigationOnClickListener {
+            navigateUpFromThread()
+        }
+
         isActivityVisible = true
 
         notificationManager.cancel(threadId.hashCode())
@@ -385,6 +395,19 @@ class ThreadActivity : SimpleActivity() {
         val bottomBarColor = getBottomBarColor()
         binding.messageHolder.root.setBackgroundColor(bottomBarColor)
         binding.shortCodeHolder.root.setBackgroundColor(bottomBarColor)
+    }
+
+    /** Up from a thread is its mailbox list. From the normal stack that is just finish(); from a task-root thread (notification entry) there is no list below, so open the list instead of dropping to the launcher. */
+    private fun navigateUpFromThread() {
+        if (!isTaskRoot) {
+            finish()
+            return
+        }
+        Intent(this, MainActivity::class.java).apply {
+            putExtra(MAILBOX_FILTER, conversation?.mailbox ?: Mailbox.CONTACTS)
+            startActivity(this)
+        }
+        finish()
     }
 
     override fun onPause() {

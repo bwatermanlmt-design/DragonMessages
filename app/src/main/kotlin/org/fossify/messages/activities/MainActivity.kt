@@ -224,6 +224,12 @@ class MainActivity : SimpleActivity() {
         binding.mainMenu.toggleHideOnScroll(true)
         binding.mainMenu.setupMenu()
 
+        // Back button: every mailbox list gets an up arrow to Mailboxes.
+        // The search menu routes the tap here when search is closed;
+        // while search is open the same tap closes search first.
+        binding.mainMenu.toggleForceArrowBackIcon(true)
+        binding.mainMenu.onNavigateBackClickListener = { navigateUpToMailboxes() }
+
         binding.mainMenu.onSearchClosedListener = {
             fadeOutSearch()
         }
@@ -264,6 +270,15 @@ class MainActivity : SimpleActivity() {
             }
             return@setOnMenuItemClickListener true
         }
+    }
+
+    /** Up from any mailbox list is Mailboxes, even when this list is the task root (notification / deep-link entry). */
+    private fun navigateUpToMailboxes() {
+        Intent(this, FolderViewActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
+            startActivity(this)
+        }
+        finish()
     }
 
     /** A filtered instance is titled after its mailbox, like a mail folder. */
