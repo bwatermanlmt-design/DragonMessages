@@ -6,8 +6,7 @@ import android.provider.Telephony.Sms
 import android.util.Base64
 import com.google.android.mms.pdu_alt.PduHeaders
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.parseToJsonElement
+import kotlinx.serialization.json.JsonObject
 import org.fossify.commons.extensions.getLongValue
 import org.fossify.commons.extensions.notificationManager
 import org.fossify.commons.extensions.queryCursor
@@ -592,7 +591,7 @@ class LockerManager(private val context: Context) {
          * unit-tests run it on the JVM.
          */
         fun decodeRecord(plaintext: String, fallbackAddress: String = ""): LockedRecord {
-            val element = recordJson.parseToJsonElement(plaintext).jsonObject
+            val element = recordJson.decodeFromString<JsonObject>(plaintext)
             return if (element.containsKey("display")) {
                 recordJson.decodeFromString<LockedRecord>(plaintext)
             } else {
