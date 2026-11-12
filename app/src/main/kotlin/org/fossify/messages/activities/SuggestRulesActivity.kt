@@ -34,6 +34,9 @@ class SuggestRulesActivity : SimpleActivity() {
     companion object {
         const val EXTRA_REFINE_RULE_ID = "refine_rule_id"
         const val EXTRA_REFINE_THREAD_ID = "refine_thread_id"
+
+        /** Thread-scoped mode: suggest filters for one thread only. */
+        const val EXTRA_THREAD_ID = "thread_id"
     }
 
     private val binding by viewBinding(ActivitySuggestRulesBinding::inflate)
@@ -41,6 +44,7 @@ class SuggestRulesActivity : SimpleActivity() {
     private var proposals: List<SeekerProposal> = emptyList()
     private val selected = LinkedHashSet<SeekerProposal>()
     private var isRefineMode = false
+    private var isThreadMode = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,6 +67,7 @@ class SuggestRulesActivity : SimpleActivity() {
             val data = SeekerData.load(this)
             val refineRuleId = intent.getLongExtra(EXTRA_REFINE_RULE_ID, -1)
             val refineThreadId = intent.getLongExtra(EXTRA_REFINE_THREAD_ID, -1)
+            val threadId = intent.getLongExtra(EXTRA_THREAD_ID, -1)
             var emptyTextId = R.string.seeker_empty_no_patterns
             if (refineRuleId != -1L && refineThreadId != -1L) {
                 isRefineMode = true
@@ -74,6 +79,33 @@ class SuggestRulesActivity : SimpleActivity() {
                     emptyList()
                 }
                 emptyTextId = R.string.seeker_refine_empty
+            } else if (threadId != -1L) {
+                // Thread mode: Ben sent this thread to Spam by hand, and
+                // the thread never had a rule to refine — show the mined
+                // patterns that would catch this one message, sender
+                // excluded (sender numbers are for blocking, not rules).
+                isThreadMode = true
+                val target = SeekerData.latestInbound(this, threadId)
+                proposals = if (target != null) {
+                    PatternSeeker.forThread(
+                        PatternSeeker.mine(data.seed, data.ham, data.rules),
+                        target
+                    )
+                } else {
+                    emptyList()
+                }
+                // Empty for two different reasons — say which: either no
+                // safe pattern exists, or a rule already catches it.
+                emptyTextId = if (target != null && proposals.isEmpty() &&
+                    data.rules.any {
+                        it.enabled && it.mailbox == Mailbox.SPAM &&
+                            PatternSeeker.matchesMessage(it, target)
+                    }
+                ) {
+                    R.string.seeker_thread_already_covered
+                } else {
+                    R.string.seeker_thread_empty
+                }
             } else {
                 proposals = PatternSeeker.mine(data.seed, data.ham, data.rules)
                 emptyTextId = if (data.seed.isEmpty()) {
@@ -91,15 +123,19 @@ class SuggestRulesActivity : SimpleActivity() {
 
     private fun showProposals(emptyTextId: Int) {
         binding.seekerLoading.beVisibleIf(false)
-        binding.seekerEmpty.beVisibleIf(proposals.isEmpty())
-        if (proposals.isEmpty()) {
-            binding.seekerEmpty.setText(emptyTextId)
-            return
-        }
 
         if (isRefineMode) {
             binding.suggestRulesSubtitle.setText(R.string.seeker_refine_subtitle)
             binding.suggestRulesToolbar.title = getString(R.string.seeker_refine_title)
+        } else if (isThreadMode) {
+            binding.suggestRulesSubtitle.setText(R.string.seeker_thread_subtitle)
+            binding.suggestRulesToolbar.title = getString(R.string.seeker_thread_title)
+        }
+
+        binding.seekerEmpty.beVisibleIf(proposals.isEmpty())
+        if (proposals.isEmpty()) {
+            binding.seekerEmpty.setText(emptyTextId)
+            return
         }
 
         val container = binding.seekerContainer

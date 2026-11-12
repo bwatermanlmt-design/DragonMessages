@@ -103,7 +103,16 @@ class QuarantinedConversationsAdapter(
             return
         }
 
-        SendToFolderDialog(activity, selectedConversations, includeLocker = true) {
+        SendToFolderDialog(activity, selectedConversations, includeLocker = true) { targetMailbox ->
+            // One thread sent to Spam by hand: offer the patterns that
+            // would catch that message. Several at once stay quiet — the
+            // folder-level Suggest rules covers them.
+            if (targetMailbox == Mailbox.SPAM && selectedConversations.size == 1) {
+                val intent = Intent(activity, SuggestRulesActivity::class.java).apply {
+                    putExtra(SuggestRulesActivity.EXTRA_THREAD_ID, selectedConversations.first().threadId)
+                }
+                activity.startActivity(intent)
+            }
             activity.runOnUiThread {
                 finishActMode()
                 refreshConversations()

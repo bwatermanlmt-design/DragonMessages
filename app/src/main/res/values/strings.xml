@@ -264,6 +264,10 @@
     <string name="seeker_refine_title">Refine this rule</string>
     <string name="seeker_refine_subtitle">This rule filed a good message. The exception above carves a hole for its sender; the narrower patterns below rewrite the rule so it dodges that message.</string>
     <string name="seeker_refine_empty">This rule no longer matches any Spam message.</string>
+    <string name="seeker_thread_title">Suggest a filter</string>
+    <string name="seeker_thread_subtitle">Patterns that would catch this message and never matched a good message. Only the ones you tick become rules.</string>
+    <string name="seeker_thread_empty">No safe pattern found for this message - every pattern in it also matches a good message.</string>
+    <string name="seeker_thread_already_covered">An existing rule already catches this message.</string>
     <string name="seeker_group_sender">Sender</string>
     <string name="seeker_group_keyword">Words and links</string>
     <string name="seeker_group_phrase">Phrases</string>

@@ -126,7 +126,6 @@ object PatternSeeker {
     /** Most proposals shown in one list, backstop behind the per-tier caps. */
     const val MAX_PROPOSALS = 100
 
-    private const val MAX_SENDER_PROPOSALS = 20
     private const val MAX_DOMAIN_PROPOSALS = 10
     private const val MAX_KEYWORD_PROPOSALS = 10
     private const val MAX_PHRASE_PROPOSALS = 30
@@ -178,9 +177,11 @@ object PatternSeeker {
 
         val proposals = ArrayList<SeekerProposal>()
 
-        // Rung 0: sender numbers. A pattern never fires on a contact, so
-        // senders in contacts are skipped outright.
-        proposals += senderProposals(seed, ham)
+        // No sender-number proposals, ever (Ben, 2026-11-12): a sender's
+        // number is for blocking, never for a filter rule. The seeker
+        // proposes patterns only — words, phrases, and link domains.
+        // The sender itself is already handled when Ben moves the thread
+        // (the sender filing) or blocks the number.
 
         // Pass 4 (generated here, shown last): single words, from the pile.
         val wordProposals = wordProposals(seed, seedTokenSets, pile)
@@ -189,7 +190,7 @@ object PatternSeeker {
         // Pass 2: phrases (bigrams up to 5-grams), lengthened until clean.
         proposals += phraseProposals(seed, seedTokenLists, hamNormalized)
 
-        // Link domains, grouped with the senders at the top.
+        // Link domains, shown first among the patterns.
         proposals += domainProposals(seed, hamBodies)
 
         // Pass 3: AND combinations, only from words that do not qualify
@@ -255,39 +256,6 @@ object PatternSeeker {
         out += variants
 
         return out
-    }
-
-    // -- Rung 0: sender numbers -------------------------------------------------
-
-    private fun senderProposals(
-        seed: List<SeekerMessage>,
-        ham: List<SeekerMessage>,
-    ): List<SeekerProposal> {
-        val hamSenders = ham.map { it.sender }
-        val bySender = seed
-            .filter { !it.senderInContacts }
-            .groupBy { it.sender }
-        return bySender.entries
-            .filter { (sender, _) -> hamSenders.none { sameSender(it, sender) } }
-            .map { (sender, messages) ->
-                val example = messages.first()
-                SeekerProposal(
-                    kind = SeekerKind.SENDER,
-                    display = sender,
-                    seedMatches = messages.size,
-                    hamMatches = 0,
-                    exampleSender = sender,
-                    exampleBody = example.body,
-                    rule = FilterRule(
-                        name = ruleName(sender, messages.size),
-                        priority = SEEKER_PRIORITY,
-                        senderExact = sender,
-                        mailbox = Mailbox.SPAM,
-                    ),
-                )
-            }
-            .sortedWith(compareByDescending<SeekerProposal> { it.seedMatches }.thenBy { it.display })
-            .take(MAX_SENDER_PROPOSALS)
     }
 
     // -- Pass 4: single words --------------------------------------------------
@@ -533,8 +501,10 @@ object PatternSeeker {
      * catches nothing, apply the replacement rule — a proposal that
      * covers everything an existing Spam rule covers offers to replace
      * it; a proposal an existing rule already covers with no improvement
-     * is dropped — then assemble the tiers, most specific first:
-     * senders and domains, then phrases (top two per group, where a
+     * is dropped — and a proposal that IS an existing rule, condition
+     * for condition, is dropped too instead of offered as a replacement
+     * that would delete and recreate an identical rule. Then assemble
+     * the tiers: domains first, then phrases (top two per group, where a
      * group is one coverage set, and ten phrases at most), then word
      * combos (five at most), then single words (ten at most, most
      * catches first — this tier is the re-examination step, a message
@@ -561,20 +531,28 @@ object PatternSeeker {
             )
             var drop = false
             var replaces: FilterRule? = null
-            for (rule in spamRules) {
-                val oldCoverage = seedCoverage(rule, seed)
-                if (oldCoverage.isEmpty()) continue
-                if (oldCoverage.all { it in coverage }) {
-                    // The proposal covers everything the old rule covers:
-                    // it can replace it (more precise or simpler).
-                    if (replaces == null || oldCoverage.size > seedCoverage(replaces, seed).size) {
-                        replaces = rule
+            // An exact duplicate — a rule that is already this proposal,
+            // condition for condition — adds nothing. Drop it instead of
+            // offering to delete and recreate the same rule.
+            if (spamRules.any { isExactDuplicate(proposal.rule, it) }) {
+                drop = true
+            }
+            if (!drop) {
+                for (rule in spamRules) {
+                    val oldCoverage = seedCoverage(rule, seed)
+                    if (oldCoverage.isEmpty()) continue
+                    if (oldCoverage.all { it in coverage }) {
+                        // The proposal covers everything the old rule covers:
+                        // it can replace it (more precise or simpler).
+                        if (replaces == null || oldCoverage.size > seedCoverage(replaces, seed).size) {
+                            replaces = rule
+                        }
+                    } else if (coverage.all { it in oldCoverage }) {
+                        // The old rule already covers everything this proposal
+                        // would catch: no improvement, drop the proposal.
+                        drop = true
+                        break
                     }
-                } else if (coverage.all { it in oldCoverage }) {
-                    // The old rule already covers everything this proposal
-                    // would catch: no improvement, drop the proposal.
-                    drop = true
-                    break
                 }
             }
             if (!drop) {
@@ -584,7 +562,6 @@ object PatternSeeker {
 
         val byCatches = compareByDescending<Pair<SeekerProposal, Set<Int>>> { it.first.seedMatches }
             .thenBy { it.first.display }
-        val senders = kept.filter { it.first.kind == SeekerKind.SENDER }.sortedWith(byCatches)
         val domains = kept.filter { it.first.kind == SeekerKind.DOMAIN }.sortedWith(byCatches)
         val phrases = kept.filter { it.first.kind == SeekerKind.PHRASE }
             .groupBy { it.second }
@@ -610,7 +587,7 @@ object PatternSeeker {
         val keywords = kept.filter { it.first.kind == SeekerKind.KEYWORD }
             .sortedWith(byCatches)
             .take(MAX_KEYWORD_PROPOSALS)
-        return (senders + domains + phrases + combos + keywords).map { it.first }.take(MAX_PROPOSALS)
+        return (domains + phrases + combos + keywords).map { it.first }.take(MAX_PROPOSALS)
     }
 
     /** Words in a proposal's pattern, for the phrase tiebreak (shorter first). */
@@ -624,6 +601,49 @@ object PatternSeeker {
             .filter { (_, message) -> ruleMatchesSeed(proposal.rule, message) }
             .map { it.index }
             .toSet()
+    }
+
+    /** Whether [rule] matches one message, using the same engine semantics as arrival. */
+    fun matchesMessage(rule: FilterRule, message: SeekerMessage): Boolean =
+        ruleMatchesSeed(rule, message)
+
+    /**
+     * Thread-scoped suggestions: the mined proposals that would catch this
+     * one message — the patterns in it, never its sender (sender numbers
+     * are for blocking, not for filter rules). Used after Ben sends a
+     * thread to Spam by hand, so the suggestion is about this message
+     * instead of the whole Spam folder.
+     */
+    fun forThread(proposals: List<SeekerProposal>, message: SeekerMessage): List<SeekerProposal> =
+        proposals.filter { matchesMessage(it.rule, message) }
+
+    /**
+     * True when the old rule IS this proposal, condition for condition —
+     * the same single condition and nothing else set. Such a proposal
+     * adds no coverage the old rule does not already have, so it is
+     * dropped instead of offered as a replacement that would delete and
+     * recreate an identical rule.
+     */
+    private fun isExactDuplicate(candidate: FilterRule, old: FilterRule): Boolean {
+        if (old.mailbox != candidate.mailbox) return false
+        if (old.keywordsJson != null || old.senderPattern != null || old.senderContains != null ||
+            old.senderInContacts != null || old.senderTag != null || old.containsLink != null ||
+            old.senderClass != null || old.repliedTo != null || old.manuallyFiled != null ||
+            old.hasImage != null
+        ) return false
+        val candidateSender = candidate.senderExact
+        val candidateKeyword = candidate.keyword
+        return when {
+            candidateSender != null -> {
+                val oldSender = old.senderExact
+                oldSender != null && sameSender(oldSender, candidateSender) &&
+                    old.keyword == null
+            }
+            candidateKeyword != null ->
+                old.keyword == candidateKeyword && old.keywordRegex == candidate.keywordRegex &&
+                    old.senderExact == null
+            else -> false
+        }
     }
 
     /** Seed indices an existing rule catches. */

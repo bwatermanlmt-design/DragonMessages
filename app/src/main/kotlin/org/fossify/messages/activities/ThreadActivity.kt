@@ -1397,14 +1397,27 @@ class ThreadActivity : SimpleActivity() {
      * file this conversation by hand to any folder, the Locker included
      * — locking from inside the thread you are reading is the obvious
      * place to offer it. The thread closes afterwards, like Block: it
-     * lives somewhere else now.
+     * lives somewhere else now. Sent to Spam, the thread never had a
+     * rule to refine, so the patterns that would catch this message are
+     * offered right away.
      */
     private fun sendToFolder() {
         val conv = conversation ?: return
-        SendToFolderDialog(this, listOf(conv), includeLocker = true) {
+        SendToFolderDialog(this, listOf(conv), includeLocker = true) { targetMailbox ->
             refreshConversations()
+            if (targetMailbox == Mailbox.SPAM) {
+                openThreadSuggest(conv.threadId)
+            }
             finish()
         }
+    }
+
+    /** Suggest filters for one thread, after Ben sends it to Spam by hand. */
+    private fun openThreadSuggest(threadId: Long) {
+        val intent = Intent(this, SuggestRulesActivity::class.java).apply {
+            putExtra(SuggestRulesActivity.EXTRA_THREAD_ID, threadId)
+        }
+        startActivity(intent)
     }
 
     /** Per-thread filing reason (revision 10): the latest audit entry for this thread's sender. */

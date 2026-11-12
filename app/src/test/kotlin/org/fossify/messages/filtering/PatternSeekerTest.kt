@@ -27,20 +27,15 @@ class PatternSeekerTest {
     // -- Rung 0: sender numbers -------------------------------------------------
 
     @Test
-    fun senderWithNoHamIsProposed() {
+    fun senderNumberIsNeverProposedAsFilter() {
+        // Ben, 2026-11-12: a sender's number is for blocking, never for a
+        // filter rule. The seeker proposes patterns only.
         val seed = listOf(msg("+15551234567", "Claim your free prize now"))
         val ham = listOf(msg("+15559876543", "Dinner at six"))
         val proposals = mine(seed, ham)
 
-        val sender = proposals.firstOrNull { it.kind == SeekerKind.SENDER }
-        assertNotNull(sender)
-        assertEquals("+15551234567", sender!!.display)
-        assertEquals(1, sender.seedMatches)
-        assertEquals(0, sender.hamMatches)
-        assertEquals("+15551234567", sender.rule.senderExact)
-        assertEquals(PatternSeeker.SEEKER_PRIORITY, sender.rule.priority)
-        assertEquals(Mailbox.SPAM, sender.rule.mailbox)
-        assertTrue(sender.rule.name.startsWith("Seeker:"))
+        assertTrue(proposals.none { it.kind == SeekerKind.SENDER })
+        assertTrue(proposals.any { it.kind == SeekerKind.KEYWORD })
     }
 
     @Test
@@ -299,7 +294,6 @@ class PatternSeekerTest {
         assertFalse(proposals.isEmpty())
 
         val groupOrder = mapOf(
-            SeekerKind.SENDER to 0,
             SeekerKind.DOMAIN to 0,
             SeekerKind.PHRASE to 1,
             SeekerKind.AND_COMBINATION to 2,
@@ -307,7 +301,7 @@ class PatternSeekerTest {
         )
         val groups = proposals.map { groupOrder[it.kind] ?: 99 }
         assertEquals(groups.sorted(), groups)
-        assertTrue(proposals.any { it.kind == SeekerKind.SENDER })
+        assertTrue(proposals.none { it.kind == SeekerKind.SENDER })
         assertTrue(proposals.any { it.kind == SeekerKind.AND_COMBINATION })
     }
 
@@ -415,6 +409,59 @@ class PatternSeekerTest {
 
         val combos = proposals.filter { it.kind == SeekerKind.AND_COMBINATION }
         assertEquals(5, combos.size)
+    }
+
+    // -- Exact duplicates ------------------------------------------------------
+
+    @Test
+    fun exactDuplicateKeywordProposalIsDropped() {
+        val seed = listOf(msg("+15551111111", "Vote today"))
+        val ham = listOf(msg("+15559876543", "Dinner at six"))
+        val rules = listOf(
+            FilterRule(name = "Vote to Spam", priority = 15, keyword = "vote", mailbox = Mailbox.SPAM)
+        )
+        val proposals = mine(seed, ham, rules)
+
+        // The "vote" proposal IS the existing rule — dropped, not offered
+        // as a delete-and-recreate replacement.
+        assertTrue(proposals.none { it.rule.keyword == "vote" })
+    }
+
+    @Test
+    fun exactDuplicateDomainProposalIsDropped() {
+        val seed = listOf(msg("+15551111111", "See https://example.com/x for details"))
+        val ham = listOf(msg("+15559876543", "Dinner at six"))
+        val rules = listOf(
+            FilterRule(name = "example.com to Spam", priority = 15, keyword = "example.com", mailbox = Mailbox.SPAM)
+        )
+        val proposals = mine(seed, ham, rules)
+
+        assertTrue(proposals.none { it.display == "example.com" })
+    }
+
+    // -- Thread-scoped suggestions ----------------------------------------------
+
+    @Test
+    fun forThreadKeepsOnlyProposalsMatchingTheMessage() {
+        val target = msg("+15551111111", "Claim your free prize now")
+        val other = msg("+15552222222", "Zebra quokka wombat")
+        val ham = listOf(msg("+15559876543", "Dinner at six"))
+        val proposals = mine(listOf(target, other), ham)
+
+        val scoped = PatternSeeker.forThread(proposals, target)
+        assertTrue(scoped.isNotEmpty())
+        assertTrue(scoped.all { PatternSeeker.matchesMessage(it.rule, target) })
+        assertTrue(scoped.none { it.rule.keyword == "zebra" })
+        assertTrue(scoped.any { it.rule.keyword == "prize" })
+    }
+
+    @Test
+    fun forThreadWithNoSafePatternIsEmpty() {
+        val target = msg("+15551111111", "Dinner at six")
+        val ham = listOf(msg("+15559876543", "Dinner at six"))
+        val proposals = mine(listOf(target), ham)
+
+        assertTrue(PatternSeeker.forThread(proposals, target).isEmpty())
     }
 
     // -- V2: single-word cap -----------------------------------------------------
