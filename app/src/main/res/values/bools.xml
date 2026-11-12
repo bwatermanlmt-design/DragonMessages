@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dragon override: the upstream commons library shows an automatic
+         "support Fossify's development" prompt 10 days after first launch
+         unless is_paid_app is true (see SupportPrompt.kt - the flag is only
+         used for that prompt). Dragon is not a Fossify app, so the prompt
+         must never fire here. App resources override the library default. -->
+    <bool name="is_paid_app">true</bool>
+</resources>
